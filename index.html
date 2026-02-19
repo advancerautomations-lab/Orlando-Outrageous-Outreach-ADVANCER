@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lumina Lead Manager</title>
+    <meta name="description" content="Professional CRM and lead management system for sales teams" />
+    <title>Lead Manager - CRM</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -63,18 +64,28 @@
         box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05);
       }
       .glass-card {
-        background: rgba(255, 255, 255, 0.4);
+        background: rgba(255, 255, 255, 0.65); /* Increased from 0.4 for better contrast */
         backdrop-filter: blur(8px);
         -webkit-backdrop-filter: blur(8px);
-        border: 1px solid rgba(255, 255, 255, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.4); /* Increased from 0.3 */
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
         transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       }
       .glass-card:hover {
-        background: rgba(255, 255, 255, 0.6);
+        background: rgba(255, 255, 255, 0.75); /* Increased from 0.6 */
         transform: translateY(-4px);
         box-shadow: 0 12px 20px -3px rgba(0, 0, 0, 0.1);
         border-color: rgba(255, 255, 255, 0.8);
+      }
+      
+      /* Disabled card hover transform for reduced motion */
+      @media (prefers-reduced-motion: reduce) {
+        .glass-card:hover {
+          transform: none;
+        }
+        .animate-blob {
+          animation: none !important;
+        }
       }
       /* Scrollbar */
       ::-webkit-scrollbar {

@@ -1,0 +1,262 @@
+{
+  "name": "Sync MailChimp Analytics → Supabase",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "hours", "hoursInterval": 6 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 6 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "email_campaigns",
+        "returnAll": true,
+        "filterType": "string",
+        "filterString": "mailchimp_automation_id=not.is.null"
+      },
+      "id": "get-campaigns",
+      "name": "Get Campaigns from DB",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [220, 0],
+      "credentials": {
+        "supabaseApi": { "id": "SUPABASE_CRED", "name": "Supabase Service Role" }
+      },
+      "notes": "Reads existing campaigns from Supabase. Campaigns and their emails should already be in the DB."
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-campaigns",
+      "name": "Loop Campaigns",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get all email_to_campaign rows for this campaign from Supabase\nconst campaign = $('Loop Campaigns').item.json;\nconst supabaseUrl = $env.SUPABASE_URL;\nconst supabaseKey = $env.SUPABASE_SERVICE_ROLE_KEY;\n\nconst res = await fetch(\n  `${supabaseUrl}/rest/v1/email_to_campaign?email_campaign=eq.${campaign.id}&order=order.asc&select=*`,\n  {\n    headers: {\n      'apikey': supabaseKey,\n      'Authorization': `Bearer ${supabaseKey}`\n    }\n  }\n);\nconst emails = await res.json();\n\n// Each email has a mailchimp_id which is the MC automation email ID.\n// MailChimp treats each automation email as an internal campaign,\n// so we use that same ID for the /reports endpoint.\nreturn emails.map(email => ({\n  json: {\n    mc_campaign_id: email.mailchimp_id,\n    mailchimp_id: email.mailchimp_id,\n    email_to_campaign_db_id: email.id,\n    email_campaign_db_id: campaign.id,\n    email_order: email.order || 1,\n    email_name: email.name || email.subject || 'Unknown'\n  }\n}));"
+      },
+      "id": "get-campaign-emails",
+      "name": "Get Campaign Emails from DB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-emails",
+      "name": "Loop Emails",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://{{ $env.MAILCHIMP_SERVER_PREFIX }}.api.mailchimp.com/3.0/reports/{{ $json.mc_campaign_id }}/email-activity?count=1000",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": { "response": { "fullResponse": false } }
+        }
+      },
+      "id": "get-email-activity",
+      "name": "Get Email Activity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "MAILCHIMP_HEADER_AUTH", "name": "MailChimp API Key" }
+      },
+      "notes": "Set up Header Auth credential: Name=Authorization, Value=Bearer YOUR_MAILCHIMP_API_KEY"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Transform email activity into email_campaign_recipients rows\n// Match subscriber emails to prospects in our DB\nconst activity = $input.first().json.emails || [];\nconst emailMeta = $('Loop Emails').item.json;\n\nconst supabaseUrl = $env.SUPABASE_URL;\nconst supabaseKey = $env.SUPABASE_SERVICE_ROLE_KEY;\n\n// Get all prospects for email matching\nconst prospectsRes = await fetch(`${supabaseUrl}/rest/v1/prospects?select=id,email`, {\n  headers: {\n    'apikey': supabaseKey,\n    'Authorization': `Bearer ${supabaseKey}`\n  }\n});\nconst prospects = await prospectsRes.json();\nconst prospectByEmail = new Map();\nfor (const p of prospects) {\n  if (p.email) prospectByEmail.set(p.email.toLowerCase(), p.id);\n}\n\nconst results = [];\nfor (const subscriber of activity) {\n  const email = subscriber.email_address?.toLowerCase();\n  const prospectId = email ? prospectByEmail.get(email) : null;\n  if (!prospectId) continue; // Skip subscribers not in our prospects table\n\n  const actions = subscriber.activity || [];\n  const sentAction = actions.find(a => a.action === 'sent');\n  const openActions = actions.filter(a => a.action === 'open');\n  const clickActions = actions.filter(a => a.action === 'click');\n  const bounceAction = actions.find(a => a.action === 'bounce');\n\n  results.push({\n    json: {\n      campaign_id: emailMeta.email_campaign_db_id,\n      prospect_id: prospectId,\n      email_to_campaign_id: emailMeta.email_to_campaign_db_id,\n      mailchimp_email_id: emailMeta.mailchimp_id,\n      current_email_step: emailMeta.email_order,\n      sent_at: sentAction?.timestamp || null,\n      delivered_at: sentAction?.timestamp || null,\n      opened_at: openActions.length > 0 ? openActions[0].timestamp : null,\n      first_opened_at: openActions.length > 0 ? openActions[openActions.length - 1].timestamp : null,\n      clicked_at: clickActions.length > 0 ? clickActions[0].timestamp : null,\n      bounced_at: bounceAction?.timestamp || null,\n      open_count: openActions.length,\n      click_count: clickActions.length,\n      updated_at: new Date().toISOString()\n    }\n  });\n}\n\nreturn results.length > 0 ? results : [{ json: { _skip: true } }];"
+      },
+      "id": "transform-activity",
+      "name": "Transform Activity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "" },
+          "conditions": [
+            {
+              "id": "skip-check",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ]
+        }
+      },
+      "id": "filter-skip",
+      "name": "Has Recipients?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "tableId": "email_campaign_recipients",
+        "conflictColumns": ["prospect_id", "email_to_campaign_id"],
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "upsert-recipients",
+      "name": "Upsert Recipients",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [1760, 0],
+      "credentials": {
+        "supabaseApi": { "id": "SUPABASE_CRED", "name": "Supabase Service Role" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// After all emails processed for this campaign, aggregate statistics\nconst campaignDbId = $('Loop Campaigns').item.json.id;\nconst supabaseUrl = $env.SUPABASE_URL;\nconst supabaseKey = $env.SUPABASE_SERVICE_ROLE_KEY;\n\n// Get all recipients for this campaign\nconst res = await fetch(`${supabaseUrl}/rest/v1/email_campaign_recipients?campaign_id=eq.${campaignDbId}&select=*`, {\n  headers: {\n    'apikey': supabaseKey,\n    'Authorization': `Bearer ${supabaseKey}`\n  }\n});\nconst recipients = await res.json();\n\nconst total_sent = recipients.filter(r => r.sent_at).length;\nconst total_delivered = recipients.filter(r => r.delivered_at).length;\nconst total_opened = recipients.filter(r => r.opened_at).length;\nconst total_clicked = recipients.filter(r => r.clicked_at).length;\nconst total_bounced = recipients.filter(r => r.bounced_at).length;\nconst total_replied = recipients.filter(r => r.replied_at).length;\nconst total_unsubscribed = recipients.filter(r => r.unsubscribed_at).length;\n\nreturn [{\n  json: {\n    campaign_id: campaignDbId,\n    total_sent,\n    total_delivered,\n    total_opened,\n    total_clicked,\n    total_bounced,\n    total_replied,\n    total_unsubscribed,\n    unique_opens: total_opened,\n    unique_clicks: total_clicked,\n    open_rate: total_sent > 0 ? ((total_opened / total_sent) * 100).toFixed(1) : 0,\n    click_rate: total_sent > 0 ? ((total_clicked / total_sent) * 100).toFixed(1) : 0,\n    reply_rate: total_sent > 0 ? ((total_replied / total_sent) * 100).toFixed(1) : 0,\n    bounce_rate: total_sent > 0 ? ((total_bounced / total_sent) * 100).toFixed(1) : 0,\n    updated_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "aggregate-stats",
+      "name": "Aggregate Statistics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1980, 0]
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "tableId": "email_campaign_statistics",
+        "conflictColumns": ["campaign_id"],
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "upsert-stats",
+      "name": "Upsert Statistics",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2200, 0],
+      "credentials": {
+        "supabaseApi": { "id": "SUPABASE_CRED", "name": "Supabase Service Role" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Update prospect flags based on all their campaign activity\nconst supabaseUrl = $env.SUPABASE_URL;\nconst supabaseKey = $env.SUPABASE_SERVICE_ROLE_KEY;\n\n// Get all recipients grouped by prospect\nconst res = await fetch(`${supabaseUrl}/rest/v1/email_campaign_recipients?prospect_id=not.is.null&select=*`, {\n  headers: {\n    'apikey': supabaseKey,\n    'Authorization': `Bearer ${supabaseKey}`\n  }\n});\nconst allRecipients = await res.json();\n\n// Group by prospect_id\nconst byProspect = new Map();\nfor (const r of allRecipients) {\n  const existing = byProspect.get(r.prospect_id) || [];\n  existing.push(r);\n  byProspect.set(r.prospect_id, existing);\n}\n\nconst updates = [];\nfor (const [prospectId, rows] of byProspect) {\n  const highestStep = Math.max(...rows.map(r => r.current_email_step || 0));\n  const anyOpened = rows.some(r => r.opened_at);\n  const lastOpened = rows\n    .filter(r => r.opened_at)\n    .sort((a, b) => new Date(b.opened_at).getTime() - new Date(a.opened_at).getTime())[0];\n  const lastClicked = rows\n    .filter(r => r.clicked_at)\n    .sort((a, b) => new Date(b.clicked_at).getTime() - new Date(a.clicked_at).getTime())[0];\n\n  updates.push({\n    json: {\n      id: prospectId,\n      current_campaign_step: highestStep,\n      opened: anyOpened,\n      last_email_opened_at: lastOpened?.opened_at || null,\n      last_email_clicked_at: lastClicked?.clicked_at || null\n    }\n  });\n}\n\nreturn updates.length > 0 ? updates : [{ json: { _done: true } }];"
+      },
+      "id": "compute-prospect-flags",
+      "name": "Compute Prospect Flags",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2420, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true },
+          "conditions": [
+            {
+              "id": "done-check",
+              "leftValue": "={{ $json._done }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ]
+        }
+      },
+      "id": "filter-done",
+      "name": "Has Updates?",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [2640, 0]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "prospects",
+        "matchColumn": "id",
+        "dataToSend": "autoMapInputData"
+      },
+      "id": "update-prospects",
+      "name": "Update Prospects",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2860, 0],
+      "credentials": {
+        "supabaseApi": { "id": "SUPABASE_CRED", "name": "Supabase Service Role" }
+      }
+    }
+  ],
+  "connections": {
+    "Every 6 Hours": {
+      "main": [[{ "node": "Get Campaigns from DB", "type": "main", "index": 0 }]]
+    },
+    "Get Campaigns from DB": {
+      "main": [[{ "node": "Loop Campaigns", "type": "main", "index": 0 }]]
+    },
+    "Loop Campaigns": {
+      "main": [
+        [{ "node": "Get Campaign Emails from DB", "type": "main", "index": 0 }],
+        [{ "node": "Compute Prospect Flags", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Campaign Emails from DB": {
+      "main": [[{ "node": "Loop Emails", "type": "main", "index": 0 }]]
+    },
+    "Loop Emails": {
+      "main": [
+        [{ "node": "Get Email Activity", "type": "main", "index": 0 }],
+        [{ "node": "Aggregate Statistics", "type": "main", "index": 0 }]
+      ]
+    },
+    "Get Email Activity": {
+      "main": [[{ "node": "Transform Activity", "type": "main", "index": 0 }]]
+    },
+    "Transform Activity": {
+      "main": [[{ "node": "Has Recipients?", "type": "main", "index": 0 }]]
+    },
+    "Has Recipients?": {
+      "main": [[{ "node": "Upsert Recipients", "type": "main", "index": 0 }]]
+    },
+    "Upsert Recipients": {
+      "main": [[{ "node": "Loop Emails", "type": "main", "index": 0 }]]
+    },
+    "Aggregate Statistics": {
+      "main": [[{ "node": "Upsert Statistics", "type": "main", "index": 0 }]]
+    },
+    "Upsert Statistics": {
+      "main": [[{ "node": "Loop Campaigns", "type": "main", "index": 0 }]]
+    },
+    "Compute Prospect Flags": {
+      "main": [[{ "node": "Has Updates?", "type": "main", "index": 0 }]]
+    },
+    "Has Updates?": {
+      "main": [[{ "node": "Update Prospects", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "REPLACE_WITH_YOUR_INSTANCE_ID"
+  },
+  "tags": [
+    { "name": "analytics" },
+    { "name": "mailchimp" }
+  ]
+}
