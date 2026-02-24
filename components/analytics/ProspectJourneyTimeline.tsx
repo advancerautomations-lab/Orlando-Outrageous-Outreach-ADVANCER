@@ -32,8 +32,8 @@ const ProspectJourneyTimeline: React.FC<Props> = ({ journey, emailInfoMap, prosp
     if (step.bounced_at) return { level: 'bounced', icon: AlertTriangle, color: 'text-red-500', bg: 'bg-red-100 text-red-600', label: 'Bounced' } as const;
     if (step.unsubscribed_at) return { level: 'unsubscribed', icon: UserX, color: 'text-orange-500', bg: 'bg-orange-100 text-orange-600', label: 'Unsubscribed' } as const;
     if (step.replied_at) return { level: 'replied', icon: MessageSquareReply, color: 'text-green-600', bg: 'bg-green-600 text-white', label: 'Replied' } as const;
-    if (step.clicked_at) return { level: 'clicked', icon: MousePointerClick, color: 'text-green-600', bg: 'bg-black text-white', label: 'Clicked' } as const;
-    if (step.opened_at) return { level: 'opened', icon: Eye, color: 'text-blue-600', bg: 'bg-black text-white', label: `Opened${step.open_count && step.open_count > 1 ? ` ${step.open_count}x` : ''}` } as const;
+    if (step.clicked_at) return { level: 'clicked', icon: MousePointerClick, color: 'text-green-600', bg: 'bg-gray-900 text-white', label: 'Clicked' } as const;
+    if (step.opened_at) return { level: 'opened', icon: Eye, color: 'text-blue-600', bg: 'bg-gray-900 text-white', label: `Opened${step.open_count && step.open_count > 1 ? ` ${step.open_count}x` : ''}` } as const;
     if (step.delivered_at) return { level: 'delivered', icon: Mail, color: 'text-gray-600', bg: 'bg-gray-300 text-gray-700', label: 'Delivered' } as const;
     if (step.sent_at) return { level: 'sent', icon: Send, color: 'text-gray-500', bg: 'bg-gray-200 text-gray-600', label: 'Sent' } as const;
     return { level: 'pending', icon: ArrowRight, color: 'text-gray-400', bg: 'bg-gray-100 text-gray-400 border border-dashed border-gray-300', label: 'Pending' } as const;
@@ -77,7 +77,7 @@ const ProspectJourneyTimeline: React.FC<Props> = ({ journey, emailInfoMap, prosp
   }
 
   const getLineColor = (status: ReturnType<typeof getStepStatus>) => {
-    if (status.level === 'replied' || status.level === 'opened' || status.level === 'clicked') return 'bg-black';
+    if (status.level === 'replied' || status.level === 'opened' || status.level === 'clicked') return 'bg-gray-900';
     if (status.level === 'sent' || status.level === 'delivered') return 'bg-gray-300';
     return 'bg-gray-200';
   };
@@ -153,7 +153,7 @@ const ProspectJourneyTimeline: React.FC<Props> = ({ journey, emailInfoMap, prosp
                   {/* Connecting line from last milestone to next email step */}
                   {hasMoreAfter && (
                     <div className="flex items-center pt-3 px-0">
-                      <div className="h-0.5 w-6 bg-black" />
+                      <div className="h-0.5 w-6 bg-gray-900" />
                     </div>
                   )}
                 </>

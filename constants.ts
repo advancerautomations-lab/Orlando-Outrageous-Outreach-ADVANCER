@@ -5,8 +5,8 @@ export const MOCK_LEADS: Lead[] = [
     id: '1',
     first_name: 'Emma',
     last_name: 'Richardson',
-    company: 'Lumina Glow',
-    email: 'emma@luminaglow.com',
+    company: 'Acme Corp',
+    email: 'emma@acmecorp.com',
     phone: '+61 400 123 456',
     value: 5000,
     status: LeadStatus.NEW,
@@ -69,7 +69,7 @@ export const MOCK_LEADS: Lead[] = [
 export const MOCK_MEETINGS: Meeting[] = [
   {
     id: '101',
-    title: 'Initial Consultation - Lumina Glow',
+    title: 'Initial Consultation - Acme Corp',
     lead_id: '1',
     start_time: new Date(Date.now() + 86400000).toISOString(), // Tomorrow
     end_time: new Date(Date.now() + 86400000 + 3600000).toISOString(),
@@ -107,7 +107,7 @@ export const MOCK_MESSAGES: Message[] = [
     id: 'm1',
     lead_id: '1',
     direction: 'outbound',
-    subject: 'Welcome to Lumina',
+    subject: 'Welcome',
     content: 'Hi Emma,\n\nThanks for your interest in our premium butterfly weft collection. I wanted to reach out and see if you had any specific questions regarding the textures we offer?\n\nBest,\nAlex',
     timestamp: new Date(Date.now() - 86400000 * 2).toISOString(),
     is_read: true
@@ -116,7 +116,7 @@ export const MOCK_MESSAGES: Message[] = [
     id: 'm2',
     lead_id: '1',
     direction: 'inbound',
-    subject: 'Re: Welcome to Lumina',
+    subject: 'Re: Welcome',
     content: 'Hi Alex,\n\nYes actually! Do you have a colour ring I could purchase beforehand? I want to make sure the shades match my current stock.\n\nThanks,\nEmma',
     timestamp: new Date(Date.now() - 86400000 * 1.8).toISOString(),
     is_read: true
@@ -125,7 +125,7 @@ export const MOCK_MESSAGES: Message[] = [
     id: 'm3',
     lead_id: '1',
     direction: 'outbound',
-    subject: 'Re: Welcome to Lumina',
+    subject: 'Re: Welcome',
     content: 'Absolutely Emma, I can send one out today. It should arrive by Thursday.',
     timestamp: new Date(Date.now() - 86400000 * 1.5).toISOString(),
     is_read: true

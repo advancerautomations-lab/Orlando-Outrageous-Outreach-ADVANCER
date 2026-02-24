@@ -1,4 +1,4 @@
-/* Superior Lead Manager - Base Styles & Accessibility */
+/* Lead Management System - Base Styles & Accessibility */
 
 /* ===== DESIGN TOKENS ===== */
 :root {
@@ -387,6 +387,19 @@ body, .glass-panel, .glass-card, input, textarea, select {
 .dark .border-orange-100 { border-color: rgba(249, 115, 22, 0.2) !important; }
 .dark .border-orange-200 { border-color: rgba(249, 115, 22, 0.25) !important; }
 .dark .border-amber-100 { border-color: rgba(245, 158, 11, 0.2) !important; }
+
+/* --- Email Journey (ProspectJourneyTimeline) dark mode --- */
+.dark .bg-gray-50\/80 { background-color: rgba(26, 26, 40, 0.8) !important; }
+.dark .bg-gray-900 { background-color: rgba(255, 255, 255, 0.15) !important; }
+.dark .bg-gray-900.text-white { color: #E8ECF1 !important; }
+
+/* Green-600 bg (Replied badge) */
+.dark .bg-green-600 { background-color: rgba(34, 197, 94, 0.7) !important; }
+.dark .bg-green-600.text-white { color: #ffffff !important; }
+
+/* Orange-100 bg (Unsubscribed badge in journey) */
+.dark .bg-orange-100 { background-color: rgba(249, 115, 22, 0.18) !important; }
+.dark .text-orange-500 { color: #FB923C !important; }
 
 /* ===== BASE STYLES ===== */
 body {

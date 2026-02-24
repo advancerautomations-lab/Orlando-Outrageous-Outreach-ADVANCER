@@ -281,7 +281,7 @@ const ColdProspectsTab: React.FC = () => {
                                 {Array.from({ length: total }, (_, i) => (
                                   <div
                                     key={i}
-                                    className={`w-3 h-1.5 rounded-full ${i < step ? 'bg-black' : 'bg-gray-200'}`}
+                                    className={`w-3 h-1.5 rounded-full ${i < step ? 'bg-gray-900' : 'bg-gray-200'}`}
                                   />
                                 ))}
                               </div>

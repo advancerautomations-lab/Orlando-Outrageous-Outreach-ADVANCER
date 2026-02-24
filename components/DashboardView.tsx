@@ -3,10 +3,11 @@ import { Lead, Meeting, Prospect, EmailCampaignRecipient, EmailCampaignStatistic
 import { prospectService, emailCampaignService } from '../services/supabaseService';
 import {
   Users, MessageSquareReply, ArrowUpRight, TrendingUp, TrendingDown, Target,
-  Send, Eye, MousePointerClick, CalendarCheck, UserPlus, Flame,
+  Send, Eye, MousePointerClick, CalendarCheck, UserPlus, Flame, DollarSign,
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip,
+  BarChart, Bar, Legend,
 } from 'recharts';
 
 interface DashboardViewProps {
@@ -23,6 +24,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
   const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>({
     sent: true, opened: true, clicked: true, replied: true,
   });
+  const [outreachPeriod, setOutreachPeriod] = useState<7 | 30 | 90>(30);
 
   useEffect(() => {
     Promise.all([
@@ -50,26 +52,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
       .finally(() => setLoading(false));
   }, []);
 
-  // ── Stat Card Calculations ──
-
-  const activeLeads = useMemo(() =>
-    leads.filter(l => l.status !== 'Lost' && l.status !== 'Won').length,
-    [leads]
-  );
-
-  const responseRate = useMemo(() => {
-    const totalSent = allStats.reduce((s, st) => s + (st.total_sent || 0), 0);
-    const totalReplied = allStats.reduce((s, st) => s + (st.total_replied || 0), 0);
-    return totalSent > 0 ? ((totalReplied / totalSent) * 100) : 0;
-  }, [allStats]);
-
-  const conversionRate = useMemo(() => {
-    if (prospects.length === 0) return 0;
-    const converted = prospects.filter(p => p.converted_to_lead_id).length;
-    return (converted / prospects.length) * 100;
-  }, [prospects]);
-
-  // ── Today's Activity Feed ──
+  // ── Helpers ──
 
   const toLocalDateStr = (d: Date): string => {
     const y = d.getFullYear();
@@ -84,6 +67,97 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
     if (!dateStr) return false;
     return toLocalDateStr(new Date(dateStr)) === todayStr;
   };
+
+  // ── Trend Calculations ──
+
+  const now = useMemo(() => new Date(), []);
+
+  const leadTrends = useMemo(() => {
+    const thisWeekStart = new Date(now);
+    thisWeekStart.setDate(thisWeekStart.getDate() - 7);
+    const lastWeekStart = new Date(now);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 14);
+
+    const thisWeekLeads = leads.filter(l => new Date(l.created_at) >= thisWeekStart).length;
+    const lastWeekLeads = leads.filter(l => {
+      const d = new Date(l.created_at);
+      return d >= lastWeekStart && d < thisWeekStart;
+    }).length;
+
+    const thisWeekActive = leads.filter(l => l.status !== 'Lost' && l.status !== 'Won' && new Date(l.created_at) >= thisWeekStart).length;
+    const lastWeekActive = leads.filter(l => {
+      const d = new Date(l.created_at);
+      return l.status !== 'Lost' && l.status !== 'Won' && d >= lastWeekStart && d < thisWeekStart;
+    }).length;
+
+    const calcTrend = (current: number, previous: number) => {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return ((current - previous) / previous) * 100;
+    };
+
+    return {
+      totalTrend: calcTrend(thisWeekLeads, lastWeekLeads),
+      activeTrend: calcTrend(thisWeekActive, lastWeekActive),
+    };
+  }, [leads, now]);
+
+  const responseRateTrend = useMemo(() => {
+    const thisWeekStart = new Date(now);
+    thisWeekStart.setDate(thisWeekStart.getDate() - 7);
+    const lastWeekStart = new Date(now);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 14);
+
+    const thisWeekSent = allRecipients.filter(r => r.sent_at && new Date(r.sent_at) >= thisWeekStart).length;
+    const thisWeekReplied = allRecipients.filter(r => r.replied_at && new Date(r.replied_at) >= thisWeekStart).length;
+    const lastWeekSent = allRecipients.filter(r => r.sent_at && new Date(r.sent_at) >= lastWeekStart && new Date(r.sent_at) < thisWeekStart).length;
+    const lastWeekReplied = allRecipients.filter(r => r.replied_at && new Date(r.replied_at) >= lastWeekStart && new Date(r.replied_at) < thisWeekStart).length;
+
+    const thisRate = thisWeekSent > 0 ? (thisWeekReplied / thisWeekSent) * 100 : 0;
+    const lastRate = lastWeekSent > 0 ? (lastWeekReplied / lastWeekSent) * 100 : 0;
+
+    return lastRate === 0 ? (thisRate > 0 ? 100 : 0) : ((thisRate - lastRate) / lastRate) * 100;
+  }, [allRecipients, now]);
+
+  // ── Stat Card Calculations ──
+
+  const activeLeads = useMemo(() =>
+    leads.filter(l => l.status !== 'Lost' && l.status !== 'Won').length,
+    [leads]
+  );
+
+  const responseRate = useMemo(() => {
+    const totalSent = allStats.reduce((s, st) => s + (st.total_sent || 0), 0);
+    const totalReplied = allStats.reduce((s, st) => s + (st.total_replied || 0), 0);
+    return totalSent > 0 ? ((totalReplied / totalSent) * 100) : 0;
+  }, [allStats]);
+
+  const pipelineValue = useMemo(() => {
+    return leads
+      .filter(l => l.status !== 'Lost' && l.status !== 'Won')
+      .reduce((sum, l) => sum + l.value, 0);
+  }, [leads]);
+
+  const pipelineValueTrend = useMemo(() => {
+    const thisWeekStart = new Date(now);
+    thisWeekStart.setDate(thisWeekStart.getDate() - 7);
+    const lastWeekStart = new Date(now);
+    lastWeekStart.setDate(lastWeekStart.getDate() - 14);
+
+    const thisWeekValue = leads
+      .filter(l => l.status !== 'Lost' && l.status !== 'Won' && new Date(l.created_at) >= thisWeekStart)
+      .reduce((s, l) => s + l.value, 0);
+    const lastWeekValue = leads
+      .filter(l => {
+        const d = new Date(l.created_at);
+        return l.status !== 'Lost' && l.status !== 'Won' && d >= lastWeekStart && d < thisWeekStart;
+      })
+      .reduce((s, l) => s + l.value, 0);
+
+    if (lastWeekValue === 0) return thisWeekValue > 0 ? 100 : 0;
+    return ((thisWeekValue - lastWeekValue) / lastWeekValue) * 100;
+  }, [leads, now]);
+
+  // ── Today's Activity Feed ──
 
   type ActivityItem = {
     type: 'sent' | 'opened' | 'clicked' | 'replied' | 'new_lead' | 'meeting';
@@ -157,13 +231,12 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
     });
   }, [leads]);
 
-  // ── 30-Day Outreach Chart ──
+  // ── Outreach Chart (dynamic period) ──
 
-  const outreach30Days = useMemo(() => {
-    const now = new Date();
+  const outreachData = useMemo(() => {
     const days: Record<string, { date: string; sent: number; opened: number; clicked: number; replied: number }> = {};
 
-    for (let i = 29; i >= 0; i--) {
+    for (let i = outreachPeriod - 1; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
       const key = toLocalDateStr(d);
@@ -185,32 +258,45 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
     }
 
     return Object.values(days);
-  }, [allRecipients]);
+  }, [allRecipients, outreachPeriod, now]);
 
-  // ── Lead Source Donut ──
+  // ── Lead Growth Bar Chart ──
 
-  const sourceColors: Record<string, string> = {
-    cold_outreach: '#000000',
-    form_submission: '#EBD3C1',
-    inbound_email: '#3B82F6',
-    manual: '#9CA3AF',
-    referral: '#F59E0B',
-    other: '#D1D5DB',
-  };
+  const leadGrowthData = useMemo(() => {
+    const months: { month: string; New: number; Contacted: number; Qualified: number; Proposal: number; Won: number }[] = [];
 
-  const leadSources = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const l of leads) {
-      // Normalize: lowercase + underscores to catch variants like "Cold Outreach" vs "cold_outreach"
-      const src = (l.source || 'other').toLowerCase().replace(/\s+/g, '_');
-      counts.set(src, (counts.get(src) || 0) + 1);
+    for (let i = 2; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59);
+      const monthLabel = d.toLocaleDateString(undefined, { month: 'short' });
+
+      const monthLeads = leads.filter(l => {
+        const created = new Date(l.created_at);
+        return created >= d && created <= monthEnd;
+      });
+
+      months.push({
+        month: monthLabel,
+        New: monthLeads.filter(l => l.status === 'New').length,
+        Contacted: monthLeads.filter(l => l.status === 'Contacted').length,
+        Qualified: monthLeads.filter(l => l.status === 'Qualified').length,
+        Proposal: monthLeads.filter(l => l.status === 'Proposal').length,
+        Won: monthLeads.filter(l => l.status === 'Won').length,
+      });
     }
-    return Array.from(counts.entries()).map(([key, value]) => ({
-      name: key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-      value,
-      color: sourceColors[key] || '#D1D5DB',
-    }));
-  }, [leads]);
+
+    return months;
+  }, [leads, now]);
+
+  const leadGrowthTrend = useMemo(() => {
+    if (leadGrowthData.length < 2) return 0;
+    const current = leadGrowthData[leadGrowthData.length - 1];
+    const previous = leadGrowthData[leadGrowthData.length - 2];
+    const currentTotal = current.New + current.Contacted + current.Qualified + current.Proposal + current.Won;
+    const previousTotal = previous.New + previous.Contacted + previous.Qualified + previous.Proposal + previous.Won;
+    if (previousTotal === 0) return currentTotal > 0 ? 100 : 0;
+    return ((currentTotal - previousTotal) / previousTotal) * 100;
+  }, [leadGrowthData]);
 
   // ── Hot Prospects ──
 
@@ -255,20 +341,62 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
     return { label: 'Sent', color: 'bg-gray-100 text-gray-600' };
   };
 
+  const formatCurrency = (value: number): string => {
+    if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+    if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
+    return `$${value.toLocaleString()}`;
+  };
+
   // ── Stat Card Component ──
 
-  const StatCard = ({ label, value, icon: Icon }: { label: string; value: string; icon: React.ElementType }) => (
-    <div className="glass-card p-6 rounded-2xl relative overflow-hidden group" role="article" aria-label={`${label}: ${value}`}>
-      <div className="absolute -right-4 -top-4 w-24 h-24 bg-accent-beige/20 rounded-full blur-2xl" aria-hidden="true" />
-      <div className="flex justify-between items-start mb-4">
-        <div className="p-3 bg-white rounded-xl shadow-sm" aria-hidden="true">
-          <Icon size={20} className="text-black" />
+  const StatCard = ({ label, value, icon: Icon, trend, trendLabel }: {
+    label: string;
+    value: string;
+    icon: React.ElementType;
+    trend?: number;
+    trendLabel?: string;
+  }) => {
+    const isPositive = (trend ?? 0) >= 0;
+    const TrendIcon = isPositive ? TrendingUp : TrendingDown;
+    const hasTrend = trend !== undefined && trend !== 0;
+
+    return (
+      <div className="glass-card p-6 rounded-2xl relative overflow-hidden group" role="article" aria-label={`${label}: ${value}`}>
+        <div className="absolute -right-4 -top-4 w-24 h-24 bg-accent-beige/20 rounded-full blur-2xl" aria-hidden="true" />
+        <div className="flex justify-between items-start mb-4">
+          <div className="p-3 bg-white rounded-xl shadow-sm" aria-hidden="true">
+            <Icon size={20} className="text-black" />
+          </div>
         </div>
+        <h3 className="text-gray-500 font-medium text-sm mb-1">{label}</h3>
+        <p className="text-3xl font-serif font-bold text-black">{value}</p>
+        {hasTrend && (
+          <div className={`flex items-center gap-1 mt-2 ${isPositive ? 'text-green-600' : 'text-red-500'}`}>
+            <TrendIcon size={14} />
+            <span className="text-xs font-medium">
+              {isPositive ? '+' : ''}{trend!.toFixed(1)}%
+            </span>
+            <span className="text-xs text-gray-400 ml-0.5">{trendLabel || 'from last week'}</span>
+          </div>
+        )}
+        {!hasTrend && (
+          <div className="flex items-center gap-1 mt-2">
+            <span className="text-xs text-gray-400">No change from last week</span>
+          </div>
+        )}
       </div>
-      <h3 className="text-gray-500 font-medium text-sm mb-1">{label}</h3>
-      <p className="text-3xl font-serif font-bold text-black">{value}</p>
-    </div>
-  );
+    );
+  };
+
+  // ── Lead Growth Bar Chart Colors ──
+
+  const stageColors: Record<string, string> = {
+    New: '#000000',
+    Contacted: '#EBD3C1',
+    Qualified: '#3B82F6',
+    Proposal: '#9CA3AF',
+    Won: '#22C55E',
+  };
 
   // ── Loading Skeleton ──
 
@@ -278,7 +406,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
         <div className="h-10 w-64 bg-gray-200 rounded-lg animate-pulse" />
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="glass-card p-6 rounded-2xl h-32 animate-pulse bg-gray-100" />
+            <div key={i} className="glass-card p-6 rounded-2xl h-36 animate-pulse bg-gray-100" />
           ))}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -291,6 +419,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
 
   const maxPipelineCount = Math.max(...pipelineFunnel.map(s => s.count), 1);
 
+  const xAxisInterval = outreachPeriod <= 7 ? 0 : outreachPeriod <= 30 ? 6 : 14;
+
   return (
     <div className="space-y-8 animate-fade-in">
       {/* Header */}
@@ -301,10 +431,10 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
 
       {/* Row 1: Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard label="Total Leads" value={String(leads.length)} icon={Target} />
-        <StatCard label="Active Leads" value={String(activeLeads)} icon={Users} />
-        <StatCard label="Response Rate" value={`${responseRate.toFixed(1)}%`} icon={MessageSquareReply} />
-        <StatCard label="Conversion Rate" value={`${conversionRate.toFixed(1)}%`} icon={ArrowUpRight} />
+        <StatCard label="Total Leads" value={String(leads.length)} icon={Target} trend={leadTrends.totalTrend} />
+        <StatCard label="Active Leads" value={String(activeLeads)} icon={Users} trend={leadTrends.activeTrend} />
+        <StatCard label="Response Rate" value={`${responseRate.toFixed(1)}%`} icon={MessageSquareReply} trend={responseRateTrend} />
+        <StatCard label="Revenue Pipeline" value={formatCurrency(pipelineValue)} icon={DollarSign} trend={pipelineValueTrend} />
       </div>
 
       {/* Row 2: Today's Activity + Pipeline Funnel */}
@@ -403,15 +533,32 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
         </div>
       </div>
 
-      {/* Row 3: 30-Day Outreach + Lead Sources */}
+      {/* Row 3: Outreach Performance + Lead Growth */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* 30-Day Outreach Area Chart */}
+        {/* Outreach Performance Area Chart */}
         <div className="glass-card p-6 rounded-2xl lg:col-span-2">
-          <h3 className="font-serif font-bold text-xl mb-2">Outreach Performance</h3>
-          <p className="text-xs text-gray-400 mb-4">Last 30 days</p>
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-serif font-bold text-xl">Outreach Performance</h3>
+            <div className="flex bg-gray-100 rounded-lg p-0.5">
+              {([7, 30, 90] as const).map(period => (
+                <button
+                  key={period}
+                  onClick={() => setOutreachPeriod(period)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                    outreachPeriod === period
+                      ? 'bg-white shadow-sm text-black'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  {period}d
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mb-4">Last {outreachPeriod} days</p>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={outreach30Days}>
+              <AreaChart data={outreachData}>
                 <defs>
                   <linearGradient id="sentGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#9CA3AF" stopOpacity={0.3} />
@@ -435,7 +582,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: '#9CA3AF', fontSize: 11 }}
-                  interval={6}
+                  interval={xAxisInterval}
                 />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 11 }} width={30} />
                 <Tooltip
@@ -478,50 +625,51 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
           </div>
         </div>
 
-        {/* Lead Source Donut */}
+        {/* Lead Growth Stacked Bar Chart */}
         <div className="glass-card p-6 rounded-2xl">
-          <h3 className="font-serif font-bold text-xl mb-6">Lead Sources</h3>
-          {leadSources.length === 0 ? (
-            <p className="text-sm text-gray-400 py-8 text-center">No leads yet</p>
-          ) : (
-            <>
-              <div className="h-52 relative">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={leadSources}
-                      innerRadius={55}
-                      outerRadius={75}
-                      paddingAngle={4}
-                      dataKey="value"
-                    >
-                      {leadSources.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} stroke="none" />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 30px -5px rgba(0,0,0,0.1)', fontSize: '12px' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-2xl font-bold font-serif">{leads.length}</span>
-                  <span className="text-[10px] text-gray-400 uppercase tracking-wide">Total</span>
-                </div>
-              </div>
-              <div className="space-y-2 mt-4">
-                {leadSources.map((item) => (
-                  <div key={item.name} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-                      <span className="text-xs text-gray-600">{item.name}</span>
-                    </div>
-                    <span className="text-xs font-medium text-gray-900">{item.value}</span>
-                  </div>
+          <h3 className="font-serif font-bold text-xl mb-1">Lead Growth</h3>
+          <div className="flex items-center gap-1 mb-5">
+            {leadGrowthTrend !== 0 ? (
+              <span className={`text-xs font-medium ${leadGrowthTrend >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                {leadGrowthTrend >= 0 ? '+' : ''}{leadGrowthTrend.toFixed(0)}% from last month
+              </span>
+            ) : (
+              <span className="text-xs text-gray-400">Last 3 months</span>
+            )}
+          </div>
+          <div className="h-52">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={leadGrowthData} barCategoryGap="25%">
+                <XAxis
+                  dataKey="month"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#9CA3AF', fontSize: 12, fontWeight: 500 }}
+                />
+                <YAxis axisLine={false} tickLine={false} tick={{ fill: '#9CA3AF', fontSize: 11 }} width={25} />
+                <Tooltip
+                  contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 30px -5px rgba(0,0,0,0.1)', fontSize: '12px' }}
+                />
+                {pipelineStages.map(stage => (
+                  <Bar
+                    key={stage}
+                    dataKey={stage}
+                    stackId="a"
+                    fill={stageColors[stage]}
+                    radius={stage === 'Won' ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                  />
                 ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1.5 mt-4">
+            {pipelineStages.map(stage => (
+              <div key={stage} className="flex items-center gap-1.5">
+                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: stageColors[stage] }} />
+                <span className="text-[11px] text-gray-500">{stage}</span>
               </div>
-            </>
-          )}
+            ))}
+          </div>
         </div>
       </div>
 
