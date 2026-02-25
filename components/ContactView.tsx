@@ -509,7 +509,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                         onClick={() => setActiveTab('conversations')}
                         className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
                             activeTab === 'conversations'
-                                ? 'bg-black text-white shadow-md'
+                                ? 'bg-[#522B47] text-white shadow-md'
                                 : 'text-gray-600 hover:text-gray-900 hover:bg-white/80'
                         }`}
                     >
@@ -520,7 +520,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                         onClick={() => setActiveTab('pending')}
                         className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer ${
                             activeTab === 'pending'
-                                ? 'bg-black text-white shadow-md'
+                                ? 'bg-[#522B47] text-white shadow-md'
                                 : 'text-gray-600 hover:text-gray-900 hover:bg-white/80'
                         }`}
                     >
@@ -540,7 +540,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                     {/* Compose New Email button */}
                     <button
                         onClick={() => setShowCompose(true)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-800 transition-all shadow-md cursor-pointer"
+                        className="flex items-center gap-2 px-4 py-2.5 bg-[#522B47] text-white rounded-xl text-sm font-medium hover:bg-[#3D1F35] transition-all shadow-md cursor-pointer"
                     >
                         <Plus size={16} />
                         New Email
@@ -655,7 +655,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                 <button
                                     onClick={handleComposeSend}
                                     disabled={composeSending || !composeSubject.trim() || !composeBody.trim() || (composeMode === 'lead' ? !composeSelectedLeadId : !composeCustomEmail.trim())}
-                                    className="flex items-center gap-2 px-5 py-2.5 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
+                                    className="flex items-center gap-2 px-5 py-2.5 bg-[#522B47] text-white rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
                                 >
                                     {composeSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                                     {composeSending ? 'Sending...' : 'Send'}
@@ -725,7 +725,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                         key={lead.id}
                                         onClick={() => handleSelectLead(lead.id)}
                                         className={`p-4 rounded-2xl cursor-pointer transition-all border border-transparent ${isSelected
-                                            ? 'bg-black text-white shadow-lg'
+                                            ? 'bg-[#522B47] text-white shadow-lg'
                                             : convoStatus === 'unread'
                                                 ? 'bg-white hover:bg-gray-50 border-gray-200 shadow-sm'
                                                 : 'hover:bg-white hover:border-gray-100'
@@ -832,7 +832,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                             onClick={() => { setViewingUserId(null); setActiveThreadId(null); }}
                                             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                                                 !viewingUserId
-                                                    ? 'bg-black text-white shadow-sm'
+                                                    ? 'bg-[#522B47] text-white shadow-sm'
                                                     : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
                                             }`}
                                         >
@@ -868,7 +868,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                 flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
                                                 whitespace-nowrap transition-all cursor-pointer flex-shrink-0
                                                 ${activeThreadId === thread.threadId
-                                                    ? 'bg-black text-white shadow-md'
+                                                    ? 'bg-[#522B47] text-white shadow-md'
                                                     : 'bg-white/60 text-gray-600 hover:bg-white hover:text-gray-900 border border-gray-200'
                                                 }
                                             `}
@@ -893,7 +893,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                             flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium
                                             whitespace-nowrap transition-all cursor-pointer flex-shrink-0
                                             ${isNewThread
-                                                ? 'bg-black text-white shadow-md'
+                                                ? 'bg-[#522B47] text-white shadow-md'
                                                 : 'bg-accent-beige/20 text-gray-600 hover:bg-accent-beige/40 border border-dashed border-gray-300'
                                             }
                                         `}
@@ -958,7 +958,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                         p-4 rounded-2xl shadow-sm relative
                                                         ${isOutbound
                                                                     ? isOwnMessage
-                                                                        ? 'bg-black text-white rounded-tr-sm'
+                                                                        ? 'bg-[#522B47] text-white rounded-tr-sm'
                                                                         : 'bg-gray-700 text-white rounded-tr-sm'
                                                                     : 'bg-white text-gray-800 rounded-tl-sm border border-gray-100'
                                                                 }
@@ -1055,7 +1055,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                             <button
                                                 onClick={handleSend}
                                                 disabled={!newMessage.trim() || isSending}
-                                                className="flex items-center gap-2 bg-black text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-black/10 cursor-pointer"
+                                                className="flex items-center gap-2 bg-[#522B47] text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-black/10 cursor-pointer"
                                                 aria-label="Send email message"
                                             >
                                                 {isSending ? (
@@ -1301,7 +1301,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                         <div className="flex gap-3">
                                             <button
                                                 onClick={() => setPendingAction('create')}
-                                                className="flex-1 flex items-center justify-center gap-2 py-3 bg-black text-white rounded-xl font-medium text-sm hover:bg-gray-800 transition-colors cursor-pointer"
+                                                className="flex-1 flex items-center justify-center gap-2 py-3 bg-[#522B47] text-white rounded-xl font-medium text-sm hover:bg-[#3D1F35] transition-colors cursor-pointer"
                                             >
                                                 <UserPlus size={16} />
                                                 Create Lead
@@ -1368,7 +1368,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                 <button
                                                     onClick={handleCreateLead}
                                                     disabled={!createLeadForm.first_name.trim() || isProcessing}
-                                                    className="flex-1 py-2.5 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
+                                                    className="flex-1 py-2.5 bg-[#522B47] text-white rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
                                                 >
                                                     {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
                                                     {isProcessing ? 'Creating...' : 'Create & Link'}
@@ -1408,7 +1408,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                 <button
                                                     onClick={handleLinkToLead}
                                                     disabled={!linkLeadId || isProcessing}
-                                                    className="flex-1 py-2.5 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
+                                                    className="flex-1 py-2.5 bg-[#522B47] text-white rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
                                                 >
                                                     {isProcessing ? <Loader2 size={14} className="animate-spin" /> : <Link2 size={14} />}
                                                     {isProcessing ? 'Linking...' : 'Link Email'}

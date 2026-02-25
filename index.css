@@ -2,10 +2,10 @@
 
 /* ===== DESIGN TOKENS ===== */
 :root {
-  --color-primary: #000000;
-  --color-accent-beige: #EBD3C1;
-  --color-accent-pink: #F9B6B6;
-  --color-background: #F8F5F2;
+  --color-primary: #522B47;
+  --color-accent-beige: #FBEA74;
+  --color-accent-pink: #7A4068;
+  --color-background: #FDFBE1;
   --color-glass: rgba(255, 255, 255, 0.6);
   
   /* Improved contrast colors for accessibility */
@@ -26,8 +26,8 @@
 /* --- Design Tokens --- */
 .dark {
   --color-primary: #ffffff;
-  --color-accent-beige: #D4B896;
-  --color-accent-pink: #D4868A;
+  --color-accent-beige: #D4C94A;
+  --color-accent-pink: #8B5078;
   --color-background: #0C0C12;
   --color-glass: rgba(22, 22, 32, 0.7);
   --color-text-primary: #E8ECF1;
@@ -105,7 +105,7 @@ body, .glass-panel, .glass-card, input, textarea, select {
 .dark input:focus, .dark textarea:focus, .dark select:focus {
   border-color: var(--dark-border-hover) !important;
   background-color: var(--dark-surface-3) !important;
-  box-shadow: 0 0 0 2px rgba(212, 184, 150, 0.15) !important;
+  box-shadow: 0 0 0 2px rgba(251, 234, 116, 0.15) !important;
 }
 
 /* --- White Backgrounds (all opacity variants) --- */
@@ -123,8 +123,9 @@ body, .glass-panel, .glass-card, input, textarea, select {
 .dark .bg-gray-200 { background-color: var(--dark-surface-4) !important; }
 
 /* --- Hardcoded hex backgrounds (cream bg) --- */
-.dark .bg-\[\#F8F5F2\] { background-color: var(--dark-surface-0) !important; }
-.dark .bg-\[\#EBD3C1\] { background-color: rgba(212, 184, 150, 0.15) !important; }
+.dark .bg-\[\#FDFBE1\] { background-color: var(--dark-surface-0) !important; }
+.dark .bg-\[\#FBEA74\] { background-color: rgba(251, 234, 116, 0.15) !important; }
+.dark .bg-\[\#522B47\] { background-color: rgba(212, 196, 74, 0.2) !important; color: #E8ECF1 !important; }
 
 /* --- Status Color Badges (100-level → dark translucent) --- */
 .dark .bg-blue-50 { background-color: rgba(59, 130, 246, 0.12) !important; }
@@ -172,10 +173,10 @@ body, .glass-panel, .glass-card, input, textarea, select {
 .dark .border-emerald-200 { border-color: rgba(16, 185, 129, 0.25) !important; }
 
 /* --- Accent Backgrounds --- */
-.dark .bg-accent-beige { background-color: rgba(212, 184, 150, 0.2) !important; }
-.dark .bg-accent-beige\/20 { background-color: rgba(212, 184, 150, 0.1) !important; }
-.dark .bg-accent-beige\/30 { background-color: rgba(212, 184, 150, 0.15) !important; }
-.dark .bg-accent-beige\/50 { background-color: rgba(212, 184, 150, 0.2) !important; }
+.dark .bg-accent-beige { background-color: rgba(251, 234, 116, 0.2) !important; }
+.dark .bg-accent-beige\/20 { background-color: rgba(251, 234, 116, 0.1) !important; }
+.dark .bg-accent-beige\/30 { background-color: rgba(251, 234, 116, 0.15) !important; }
+.dark .bg-accent-beige\/50 { background-color: rgba(251, 234, 116, 0.2) !important; }
 
 /* --- Hover States --- */
 .dark .hover\:bg-white:hover { background-color: var(--dark-surface-3) !important; }
@@ -183,7 +184,7 @@ body, .glass-panel, .glass-card, input, textarea, select {
 .dark .hover\:bg-gray-50:hover { background-color: var(--dark-surface-3) !important; }
 .dark .hover\:bg-gray-100:hover { background-color: var(--dark-surface-4) !important; }
 .dark .hover\:bg-red-50:hover { background-color: rgba(239, 68, 68, 0.12) !important; }
-.dark .hover\:bg-accent-beige\/30:hover { background-color: rgba(212, 184, 150, 0.12) !important; }
+.dark .hover\:bg-accent-beige\/30:hover { background-color: rgba(251, 234, 116, 0.12) !important; }
 
 /* --- Borders --- */
 .dark .border-gray-100 { border-color: var(--dark-border) !important; }
@@ -206,14 +207,11 @@ body, .glass-panel, .glass-card, input, textarea, select {
 .dark .bg-black svg {
   color: #0C0C12 !important;
 }
-.dark .hover\:bg-gray-800:hover {
-  background-color: #D1D5DB !important;
-  color: #0C0C12 !important;
-}
+/* hover:bg-gray-800 was renamed to hover:bg-[#3D1F35] — see plum button dark mode below */
 
 /* Keep black bg-black on active sidebar item but adjust */
 .dark .bg-black.text-white {
-  background-color: rgba(212, 184, 150, 0.2) !important;
+  background-color: rgba(251, 234, 116, 0.2) !important;
   color: #E8ECF1 !important;
 }
 .dark .bg-black.text-white span,
@@ -258,7 +256,7 @@ body, .glass-panel, .glass-card, input, textarea, select {
 
 /* --- Focus --- */
 .dark *:focus-visible {
-  outline-color: #D4B896;
+  outline-color: #D4C94A;
 }
 
 /* --- Recharts (SVG charts) --- */
@@ -364,8 +362,29 @@ body, .glass-panel, .glass-card, input, textarea, select {
 .dark .bg-gray-200.rounded-full { background-color: var(--dark-surface-4) !important; }
 
 /* --- Sidebar active state text color inheritance fix --- */
-.dark .bg-black.text-white .text-accent-beige {
+.dark .bg-black.text-white .text-accent-beige,
+.dark .bg-\[\#522B47\].text-white .text-accent-beige {
   color: var(--color-accent-beige) !important;
+}
+
+/* --- Plum primary button dark mode --- */
+.dark .bg-\[\#522B47\] {
+  background-color: rgba(251, 234, 116, 0.2) !important;
+  color: #E8ECF1 !important;
+}
+.dark .bg-\[\#522B47\].text-white {
+  background-color: rgba(251, 234, 116, 0.2) !important;
+  color: #E8ECF1 !important;
+}
+.dark .bg-\[\#522B47\].text-white span,
+.dark .bg-\[\#522B47\].text-white svg {
+  color: inherit !important;
+}
+.dark .hover\:bg-\[\#3D1F35\]:hover {
+  background-color: rgba(251, 234, 116, 0.3) !important;
+}
+.dark .hover\:bg-\[\#522B47\]:hover {
+  background-color: rgba(251, 234, 116, 0.25) !important;
 }
 
 /* --- Hover on cancel/outline buttons --- */

@@ -36,7 +36,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
   return (
     <aside className="fixed left-0 top-0 h-full w-64 glass-panel z-50 flex flex-col transition-all duration-300" role="navigation" aria-label="Main navigation">
       <div className="p-8 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-black flex items-center justify-center" aria-hidden="true">
+        <div className="w-8 h-8 rounded-full bg-[#522B47] flex items-center justify-center" aria-hidden="true">
           <span className="text-white font-serif font-bold text-lg">{COMPANY_INITIAL}</span>
         </div>
         <h1 className="font-serif text-2xl font-bold text-primary tracking-tight">{COMPANY_NAME}</h1>
@@ -54,7 +54,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
               aria-current={isActive ? 'page' : undefined}
               className={`w-full flex items-center gap-4 px-4 py-3 rounded-xl transition-all duration-200 group cursor-pointer
                 ${isActive
-                  ? 'bg-black text-white shadow-lg shadow-black/20 translate-x-2'
+                  ? 'bg-[#522B47] text-white shadow-lg shadow-black/20 translate-x-2'
                   : 'text-gray-600 hover:bg-accent-beige/30 hover:text-black'
                 }`}
             >

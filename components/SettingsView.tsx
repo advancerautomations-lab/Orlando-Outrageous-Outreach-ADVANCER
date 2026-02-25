@@ -153,7 +153,7 @@ const SettingsView: React.FC = () => {
                 <button
                   onClick={handleSaveProfile}
                   disabled={isSavingProfile || !fullName.trim()}
-                  className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full text-sm font-medium hover:bg-gray-800 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="flex items-center gap-2 bg-[#522B47] text-white px-5 py-2.5 rounded-full text-sm font-medium hover:bg-[#3D1F35] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {isSavingProfile ? (
                     <Loader2 size={14} className="animate-spin" />
@@ -236,7 +236,7 @@ const SettingsView: React.FC = () => {
                 <button
                   onClick={handleChangePassword}
                   disabled={!canChangePassword}
-                  className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full text-sm font-medium hover:bg-gray-800 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                  className="flex items-center gap-2 bg-[#522B47] text-white px-5 py-2.5 rounded-full text-sm font-medium hover:bg-[#3D1F35] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {isChangingPassword ? <Loader2 size={14} className="animate-spin" /> : null}
                   Change Password
@@ -289,7 +289,7 @@ const SettingsView: React.FC = () => {
               <button
                 onClick={connectGmail}
                 disabled={gmailLoading}
-                className="flex items-center gap-2 px-4 py-2 bg-black text-white rounded-full text-xs font-medium hover:bg-gray-800 active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
+                className="flex items-center gap-2 px-4 py-2 bg-[#522B47] text-white rounded-full text-xs font-medium hover:bg-[#3D1F35] active:scale-95 transition-all disabled:opacity-50 cursor-pointer"
               >
                 {gmailLoading ? <Loader2 size={12} className="animate-spin" /> : <ExternalLink size={12} />}
                 Connect
@@ -318,7 +318,7 @@ const SettingsView: React.FC = () => {
             <button
               onClick={toggleDarkMode}
               className={`relative w-14 h-7 rounded-full transition-colors duration-300 cursor-pointer ${
-                isDark ? 'bg-black' : 'bg-gray-200'
+                isDark ? 'bg-[#522B47]' : 'bg-gray-200'
               }`}
               role="switch"
               aria-checked={isDark}

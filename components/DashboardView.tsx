@@ -391,8 +391,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
   // ── Lead Growth Bar Chart Colors ──
 
   const stageColors: Record<string, string> = {
-    New: '#000000',
-    Contacted: '#EBD3C1',
+    New: '#522B47',
+    Contacted: '#FBEA74',
     Qualified: '#3B82F6',
     Proposal: '#9CA3AF',
     Won: '#22C55E',
@@ -466,7 +466,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
               </span>
             )}
             {todaySummary.new_lead > 0 && (
-              <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-black text-white">
+              <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-[#522B47] text-white">
                 {todaySummary.new_lead} new lead{todaySummary.new_lead > 1 ? 's' : ''}
               </span>
             )}
@@ -517,7 +517,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
                 </div>
                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-black rounded-full transition-all duration-500"
+                    className="h-full bg-[#522B47] rounded-full transition-all duration-500"
                     style={{ width: `${(stage.count / maxPipelineCount) * 100}%` }}
                   />
                 </div>
@@ -569,8 +569,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
                     <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="clickedGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#000000" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#000000" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#522B47" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="#522B47" stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="repliedGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3} />
@@ -591,7 +591,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
                 />
                 {visibleSeries.sent && <Area type="monotone" dataKey="sent" stroke="#9CA3AF" fill="url(#sentGrad)" strokeWidth={1.5} />}
                 {visibleSeries.opened && <Area type="monotone" dataKey="opened" stroke="#3B82F6" fill="url(#openedGrad)" strokeWidth={1.5} />}
-                {visibleSeries.clicked && <Area type="monotone" dataKey="clicked" stroke="#000000" fill="url(#clickedGrad)" strokeWidth={1.5} />}
+                {visibleSeries.clicked && <Area type="monotone" dataKey="clicked" stroke="#522B47" fill="url(#clickedGrad)" strokeWidth={1.5} />}
                 {visibleSeries.replied && <Area type="monotone" dataKey="replied" stroke="#22C55E" fill="url(#repliedGrad)" strokeWidth={2} />}
               </AreaChart>
             </ResponsiveContainer>
@@ -600,7 +600,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
             {[
               { key: 'sent', label: 'Sent', color: '#9CA3AF' },
               { key: 'opened', label: 'Opened', color: '#3B82F6' },
-              { key: 'clicked', label: 'Clicked', color: '#000000' },
+              { key: 'clicked', label: 'Clicked', color: '#522B47' },
               { key: 'replied', label: 'Replied', color: '#22C55E' },
             ].map(item => {
               const active = visibleSeries[item.key];
@@ -716,7 +716,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
                               {Array.from({ length: totalCampaignEmails }, (_, i) => (
                                 <div
                                   key={i}
-                                  className={`w-3 h-1.5 rounded-full ${i < step ? 'bg-black' : 'bg-gray-200'}`}
+                                  className={`w-3 h-1.5 rounded-full ${i < step ? 'bg-[#522B47]' : 'bg-gray-200'}`}
                                 />
                               ))}
                             </div>

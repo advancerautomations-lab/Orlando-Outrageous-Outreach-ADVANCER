@@ -35,7 +35,7 @@ const FunnelChart: React.FC<Props> = ({ steps }) => {
               {/* Bar */}
               <div className="w-full flex flex-col items-center justify-end flex-1">
                 <div
-                  className="w-full bg-black rounded-t-lg transition-all duration-500 ease-out relative group"
+                  className="w-full bg-[#522B47] rounded-t-lg transition-all duration-500 ease-out relative group"
                   style={{
                     height: animated ? `${Math.max(percentage, minHeight)}%` : '0%',
                     opacity: Math.max(0.3, percentage / 100),

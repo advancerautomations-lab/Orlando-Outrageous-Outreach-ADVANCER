@@ -384,9 +384,9 @@ const App: React.FC = () => {
   if (showSetupWizard) {
     return (
       <Suspense fallback={
-        <div className="h-screen w-screen flex items-center justify-center bg-[#F8F5F2]">
+        <div className="h-screen w-screen flex items-center justify-center bg-[#FDFBE1]">
           <div className="animate-pulse flex flex-col items-center gap-4">
-            <div className="w-12 h-12 bg-black rounded-full"></div>
+            <div className="w-12 h-12 bg-[#522B47] rounded-full"></div>
             <div className="font-serif text-lg font-medium">Loading...</div>
           </div>
         </div>
@@ -405,9 +405,9 @@ const App: React.FC = () => {
   // Loading screen (shown after auth check and wizard check)
   if (isLoading) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[#F8F5F2]">
+      <div className="h-screen w-screen flex items-center justify-center bg-[#FDFBE1]">
         <div className="animate-pulse flex flex-col items-center gap-4">
-          <div className="w-12 h-12 bg-black rounded-full"></div>
+          <div className="w-12 h-12 bg-[#522B47] rounded-full"></div>
           <div className="font-serif text-lg font-medium">{COMPANY_NAME}</div>
         </div>
       </div>
@@ -415,7 +415,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="flex min-h-screen relative overflow-hidden bg-[#F8F5F2] text-gray-900 font-sans">
+    <div className="flex min-h-screen relative overflow-hidden bg-[#FDFBE1] text-gray-900 font-sans">
 
       {/* Ambient Background Blobs */}
       <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-accent-beige rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-blob"></div>
@@ -442,7 +442,7 @@ const App: React.FC = () => {
             <div className="relative" ref={notifRef}>
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
-                className="relative p-2.5 bg-white rounded-full hover:bg-black hover:text-white transition-all duration-300 shadow-sm group cursor-pointer"
+                className="relative p-2.5 bg-white rounded-full hover:bg-[#522B47] hover:text-white transition-all duration-300 shadow-sm group cursor-pointer"
                 aria-label={`Notifications (${unreadNotifCount} unread)`}
               >
                 <Bell size={20} aria-hidden="true" />
@@ -523,7 +523,7 @@ const App: React.FC = () => {
                 <p className="text-xs text-gray-500 capitalize">{currentUser?.role === 'admin' ? 'Admin' : 'Sales Rep'}</p>
               </div>
               <button
-                className="w-10 h-10 rounded-full bg-black text-white flex items-center justify-center hover:scale-105 transition-transform shadow-md ring-4 ring-white/50 cursor-pointer"
+                className="w-10 h-10 rounded-full bg-[#522B47] text-white flex items-center justify-center hover:scale-105 transition-transform shadow-md ring-4 ring-white/50 cursor-pointer"
                 aria-label={`User profile menu for ${currentUser?.full_name || 'User'}`}
               >
                 <User size={20} aria-hidden="true" />
@@ -537,7 +537,7 @@ const App: React.FC = () => {
           <Suspense fallback={
             <div className="flex items-center justify-center py-20">
               <div className="animate-pulse flex flex-col items-center gap-4">
-                <div className="w-12 h-12 bg-black rounded-full"></div>
+                <div className="w-12 h-12 bg-[#522B47] rounded-full"></div>
                 <div className="font-serif text-lg font-medium">Loading...</div>
               </div>
             </div>
