@@ -161,8 +161,8 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
 
     const data = [
       { name: 'Replied', value: replied, color: '#22C55E' },
-      { name: 'Clicked', value: clicked, color: '#EBD3C1' },
-      { name: 'Opened', value: opened, color: '#000000' },
+      { name: 'Clicked', value: clicked, color: '#FBEA74' },
+      { name: 'Opened', value: opened, color: '#522B47' },
       { name: 'Bounced', value: bounced, color: '#EF4444' },
       { name: 'No engagement', value: noEngagement, color: '#E5E7EB' },
     ].filter(d => d.value > 0);
@@ -304,7 +304,7 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
   const InlineBar = ({ value, max = 100 }: { value: number; max?: number }) => (
     <div className="inline-flex items-center gap-2">
       <div className="w-14 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full bg-black rounded-full" style={{ width: `${Math.min((value / max) * 100, 100)}%` }} />
+        <div className="h-full bg-[#522B47] rounded-full" style={{ width: `${Math.min((value / max) * 100, 100)}%` }} />
       </div>
     </div>
   );
@@ -342,7 +342,7 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
               aria-label="Include re-engagements"
               onClick={() => setIncludeReengagements(prev => !prev)}
               className={`relative w-9 h-5 rounded-full transition-colors duration-200 ${
-                includeReengagements ? 'bg-black' : 'bg-gray-300'
+                includeReengagements ? 'bg-[#522B47]' : 'bg-gray-300'
               }`}
             >
               <span
@@ -438,8 +438,8 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
                   iconSize={8}
                   wrapperStyle={{ fontSize: '11px', paddingTop: '8px' }}
                 />
-                <Bar dataKey="Open Rate" fill="#000000" radius={[4, 4, 0, 0]} barSize={18} />
-                <Bar dataKey="Click Rate" fill="#EBD3C1" radius={[4, 4, 0, 0]} barSize={18} />
+                <Bar dataKey="Open Rate" fill="#522B47" radius={[4, 4, 0, 0]} barSize={18} />
+                <Bar dataKey="Click Rate" fill="#FBEA74" radius={[4, 4, 0, 0]} barSize={18} />
                 <Bar dataKey="Reply Rate" fill="#22C55E" radius={[4, 4, 0, 0]} barSize={18} />
               </BarChart>
             </ResponsiveContainer>
@@ -456,7 +456,7 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
                 onClick={() => setDonutView('emails-sent')}
                 className={`px-3 py-1 rounded-full text-[10px] font-medium transition-all duration-200 ${
                   donutView === 'emails-sent'
-                    ? 'bg-black text-white shadow-sm'
+                    ? 'bg-[#522B47] text-white shadow-sm'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >
@@ -466,7 +466,7 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
                 onClick={() => setDonutView('recipients')}
                 className={`px-3 py-1 rounded-full text-[10px] font-medium transition-all duration-200 ${
                   donutView === 'recipients'
-                    ? 'bg-black text-white shadow-sm'
+                    ? 'bg-[#522B47] text-white shadow-sm'
                     : 'text-gray-500 hover:text-gray-700'
                 }`}
               >

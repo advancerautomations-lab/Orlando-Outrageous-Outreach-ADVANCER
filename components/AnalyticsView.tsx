@@ -61,7 +61,7 @@ const AnalyticsView: React.FC = () => {
             onKeyDown={(e) => handleTabKeyDown(e, idx)}
             className={`px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-200 cursor-pointer ${
               activeTab === tab.id
-                ? 'bg-black text-white shadow-lg shadow-black/20'
+                ? 'bg-[#522B47] text-white shadow-lg shadow-black/20'
                 : 'bg-white text-gray-600 hover:bg-gray-50 border border-gray-200'
             }`}
           >

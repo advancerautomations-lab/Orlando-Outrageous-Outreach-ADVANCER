@@ -101,7 +101,7 @@ const OutreachStageTab: React.FC<Props> = ({ initialCampaignId }) => {
     });
   }, [sortedCampaignEmails, campaignRecipients]);
 
-  const MicroBar = ({ value, max, color = 'bg-black' }: { value: number; max: number; color?: string }) => {
+  const MicroBar = ({ value, max, color = 'bg-[#522B47]' }: { value: number; max: number; color?: string }) => {
     const pct = max > 0 ? (value / max) * 100 : 0;
     return (
       <div className="flex items-center gap-2 flex-1">
@@ -189,7 +189,7 @@ const OutreachStageTab: React.FC<Props> = ({ initialCampaignId }) => {
                     <div className="flex items-stretch gap-4">
                       {/* Step number with connecting line */}
                       <div className="flex flex-col items-center">
-                        <div className="w-10 h-10 rounded-full bg-black text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-[#522B47] text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
                           {email.order ?? index + 1}
                         </div>
                         {index < sortedCampaignEmails.length - 1 && (

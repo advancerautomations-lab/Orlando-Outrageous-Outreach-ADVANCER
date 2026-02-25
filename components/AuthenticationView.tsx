@@ -62,7 +62,7 @@ export const AuthenticationView: React.FC = () => {
     };
 
     return (
-        <div className="flex min-h-screen items-center justify-center relative overflow-hidden bg-[#F8F5F2] text-gray-900 font-sans">
+        <div className="flex min-h-screen items-center justify-center relative overflow-hidden bg-[#FDFBE1] text-gray-900 font-sans">
             {/* Accessing existing background blobs via global styles or recreating them here for consistency */}
             <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-accent-beige rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-blob"></div>
             <div className="fixed top-[-10%] right-[-10%] w-[35%] h-[35%] bg-accent-pink rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000"></div>
@@ -72,7 +72,7 @@ export const AuthenticationView: React.FC = () => {
                 <div className="backdrop-blur-xl bg-white/40 border border-white/50 shadow-2xl rounded-3xl p-8 transition-all duration-300 hover:shadow-white/50 hover:bg-white/50">
 
                     <div className="text-center mb-8">
-                        <div className="w-12 h-12 bg-black rounded-full mx-auto mb-4 flex items-center justify-center shadow-lg">
+                        <div className="w-12 h-12 bg-[#522B47] rounded-full mx-auto mb-4 flex items-center justify-center shadow-lg">
                             <span className="text-white font-serif italic text-xl">{COMPANY_INITIAL}</span>
                         </div>
                         <h2 className="text-3xl font-bold tracking-tight text-gray-900">
@@ -131,7 +131,7 @@ export const AuthenticationView: React.FC = () => {
                         <button
                             type="submit"
                             disabled={loading}
-                            className="w-full flex items-center justify-center gap-2 bg-black text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg disabled:opacity-70 disabled:hover:scale-100"
+                            className="w-full flex items-center justify-center gap-2 bg-[#522B47] text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg disabled:opacity-70 disabled:hover:scale-100"
                         >
                             {loading ? (
                                 <Loader2 className="h-5 w-5 animate-spin" />

@@ -101,7 +101,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ isRecoverySession, onComplete
   const firstName = currentUser?.full_name?.split(' ')[0] || 'there';
 
   return (
-    <div className="flex min-h-screen items-center justify-center relative overflow-hidden bg-[#F8F5F2] text-gray-900 font-sans">
+    <div className="flex min-h-screen items-center justify-center relative overflow-hidden bg-[#FDFBE1] text-gray-900 font-sans">
       {/* Background blobs */}
       <div className="fixed top-[-10%] left-[-10%] w-[40%] h-[40%] bg-accent-beige rounded-full mix-blend-multiply filter blur-3xl opacity-40 animate-blob" />
       <div className="fixed top-[-10%] right-[-10%] w-[35%] h-[35%] bg-accent-pink rounded-full mix-blend-multiply filter blur-3xl opacity-30 animate-blob animation-delay-2000" />
@@ -116,7 +116,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ isRecoverySession, onComplete
               <div
                 key={step}
                 className={`h-2 rounded-full transition-all duration-500 ${
-                  i <= stepIndex ? 'bg-black w-8' : 'bg-gray-200 w-2'
+                  i <= stepIndex ? 'bg-[#522B47] w-8' : 'bg-gray-200 w-2'
                 }`}
               />
             ))}
@@ -126,7 +126,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ isRecoverySession, onComplete
           {currentStep === 'welcome' && (
             <div className="animate-fade-in">
               <div className="text-center mb-8">
-                <div className="w-14 h-14 bg-black rounded-full mx-auto mb-5 flex items-center justify-center shadow-lg">
+                <div className="w-14 h-14 bg-[#522B47] rounded-full mx-auto mb-5 flex items-center justify-center shadow-lg">
                   <span className="text-white font-serif italic text-2xl">S</span>
                 </div>
                 <h2 className="text-3xl font-serif font-bold tracking-tight text-gray-900 mb-3">
@@ -145,7 +145,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ isRecoverySession, onComplete
 
               <button
                 onClick={() => setCurrentStep('password')}
-                className="w-full flex items-center justify-center gap-2 bg-black text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 bg-[#522B47] text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg cursor-pointer"
               >
                 Get Started
                 <ArrowRight size={18} />
@@ -214,7 +214,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ isRecoverySession, onComplete
               <button
                 onClick={handleSetPassword}
                 disabled={!canSetPassword}
-                className="w-full flex items-center justify-center gap-2 bg-black text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 bg-[#522B47] text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed cursor-pointer"
               >
                 {isUpdatingPassword ? (
                   <Loader2 size={18} className="animate-spin" />
@@ -292,7 +292,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ isRecoverySession, onComplete
                 onClick={gmailConnected ? () => setCurrentStep('linkedin') : handleSkipGmail}
                 className={`w-full flex items-center justify-center gap-2 py-3.5 px-4 rounded-xl transition-all duration-200 cursor-pointer ${
                   gmailConnected
-                    ? 'bg-black text-white hover:scale-[1.02] active:scale-[0.98] shadow-lg'
+                    ? 'bg-[#522B47] text-white hover:scale-[1.02] active:scale-[0.98] shadow-lg'
                     : 'bg-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'
                 }`}
               >
@@ -342,7 +342,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ isRecoverySession, onComplete
                 <button
                   onClick={handleSaveLinkedin}
                   disabled={!linkedinUrl.trim() || isSavingLinkedin}
-                  className="w-full flex items-center justify-center gap-2 bg-black text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed cursor-pointer"
+                  className="w-full flex items-center justify-center gap-2 bg-[#522B47] text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed cursor-pointer"
                 >
                   {isSavingLinkedin ? (
                     <Loader2 size={18} className="animate-spin" />
@@ -403,7 +403,7 @@ const SetupWizard: React.FC<SetupWizardProps> = ({ isRecoverySession, onComplete
               <button
                 onClick={handleFinish}
                 disabled={isFinishing}
-                className="w-full flex items-center justify-center gap-2 bg-black text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg disabled:opacity-70 cursor-pointer"
+                className="w-full flex items-center justify-center gap-2 bg-[#522B47] text-white py-3.5 px-4 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 shadow-lg disabled:opacity-70 cursor-pointer"
               >
                 {isFinishing ? (
                   <Loader2 size={18} className="animate-spin" />

@@ -285,7 +285,7 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
                     {/* New Customer */}
                     <button
                         onClick={() => setShowNewLeadModal(true)}
-                        className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full hover:bg-gray-800 shadow-lg shadow-black/20 transition-all active:scale-95 cursor-pointer"
+                        className="flex items-center gap-2 bg-[#522B47] text-white px-5 py-2.5 rounded-full hover:bg-[#3D1F35] shadow-lg shadow-black/20 transition-all active:scale-95 cursor-pointer"
                     >
                         <span className="font-medium">New Customer</span>
                         <Plus size={16} className="bg-white/20 rounded-full p-0.5" />
@@ -444,7 +444,7 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
                                             className={`
                                             px-3 py-1.5 rounded-full text-xs font-medium transition-all cursor-pointer
                                             ${selectedLeadId === lead.id
-                                                    ? 'bg-black text-white'
+                                                    ? 'bg-[#522B47] text-white'
                                                     : 'bg-white border border-gray-200 text-gray-600 group-hover:border-gray-300'
                                                 }
                                         `}
@@ -586,7 +586,7 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
                                             }
                                         }}
                                         className={`p-2 rounded-full transition-colors shadow-sm cursor-pointer ${
-                                            isEditing ? 'bg-black text-white hover:bg-gray-800' : 'bg-white hover:bg-gray-50 text-gray-500'
+                                            isEditing ? 'bg-[#522B47] text-white hover:bg-[#3D1F35]' : 'bg-white hover:bg-gray-50 text-gray-500'
                                         }`}
                                         title={isEditing ? 'Save changes' : 'Edit lead'}
                                     >
@@ -849,7 +849,7 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
                                         setIsResearching(false);
                                     }}
                                     disabled={isResearching}
-                                    className="w-full flex items-center justify-center gap-2 bg-black text-white py-3 px-4 rounded-xl hover:bg-gray-800 active:scale-[0.98] transition-all shadow-md disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
+                                    className="w-full flex items-center justify-center gap-2 bg-[#522B47] text-white py-3 px-4 rounded-xl hover:bg-[#3D1F35] active:scale-[0.98] transition-all shadow-md disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
                                 >
                                     {isResearching ? (
                                         <Loader2 size={16} className="animate-spin" />
@@ -1031,7 +1031,7 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
                             <button
                                 onClick={handleCreateLead}
                                 disabled={!newLeadForm.first_name.trim() || !newLeadForm.last_name.trim() || !newLeadForm.email.trim() || isCreating}
-                                className="flex-1 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
+                                className="flex-1 py-3 bg-[#522B47] text-white rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
                             >
                                 {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
                                 {isCreating ? 'Creating...' : 'Create Lead'}

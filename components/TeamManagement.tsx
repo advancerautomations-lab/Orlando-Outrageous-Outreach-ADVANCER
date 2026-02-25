@@ -94,7 +94,7 @@ const TeamManagement: React.FC = () => {
         </div>
         <button
           onClick={() => setShowAddForm(true)}
-          className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full hover:bg-gray-800 shadow-lg shadow-black/20 transition-all active:scale-95 cursor-pointer"
+          className="flex items-center gap-2 bg-[#522B47] text-white px-5 py-2.5 rounded-full hover:bg-[#3D1F35] shadow-lg shadow-black/20 transition-all active:scale-95 cursor-pointer"
         >
           <Plus size={16} />
           <span className="font-medium text-sm">Add Member</span>
@@ -106,7 +106,7 @@ const TeamManagement: React.FC = () => {
         {/* Current User (You) */}
         <div className="glass-card rounded-2xl p-5">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-full bg-black text-white flex items-center justify-center font-bold text-lg flex-shrink-0">
+            <div className="w-12 h-12 rounded-full bg-[#522B47] text-white flex items-center justify-center font-bold text-lg flex-shrink-0">
               {currentUser?.full_name?.split(' ').map(n => n[0]).join('').toUpperCase()}
             </div>
             <div className="flex-1 min-w-0">
@@ -211,7 +211,7 @@ const TeamManagement: React.FC = () => {
               <button
                 onClick={handleCreateUser}
                 disabled={!addForm.email.trim() || !addForm.full_name.trim() || isCreating}
-                className="flex-1 py-3 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
+                className="flex-1 py-3 bg-[#522B47] text-white rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
               >
                 {isCreating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
                 {isCreating ? 'Creating...' : 'Create User'}

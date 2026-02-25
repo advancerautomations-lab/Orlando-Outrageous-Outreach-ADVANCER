@@ -416,7 +416,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                                     onClick={() => handleDayClick(day)}
                                     className={`
                                         relative p-2 rounded-xl border border-transparent transition-all duration-200 cursor-pointer
-                                        ${todayClass ? 'bg-black text-white shadow-lg' : 'hover:bg-white hover:shadow-sm hover:border-gray-100'}
+                                        ${todayClass ? 'bg-[#522B47] text-white shadow-lg' : 'hover:bg-white hover:shadow-sm hover:border-gray-100'}
                                         ${hasEvents && !todayClass ? 'bg-accent-beige/20' : ''}
                                     `}
                                 >
@@ -517,7 +517,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                                         <button
                                             onClick={() => handleQuickSchedule(lead)}
                                             disabled={!isAuthenticated}
-                                            className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-lg hover:bg-gray-800 transition-colors cursor-pointer opacity-0 group-hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                                            className="px-3 py-1.5 bg-[#522B47] text-white text-xs font-medium rounded-lg hover:bg-[#3D1F35] transition-colors cursor-pointer opacity-0 group-hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
                                         >
                                             Schedule
                                         </button>
@@ -671,7 +671,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                                             <div
                                                 key={event.id}
                                                 onClick={(e) => handleEventClick(event, e)}
-                                                className="absolute left-1 right-1 bg-black text-white rounded-lg p-2 cursor-pointer hover:bg-gray-800 transition-colors shadow-md overflow-hidden"
+                                                className="absolute left-1 right-1 bg-[#522B47] text-white rounded-lg p-2 cursor-pointer hover:bg-[#3D1F35] transition-colors shadow-md overflow-hidden"
                                                 style={{
                                                     top: `${yPos}px`,
                                                     height: `${height}px`,
@@ -705,7 +705,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                         <button
                             onClick={handleScheduleFromDayView}
                             disabled={!isAuthenticated}
-                            className="w-full py-3 mt-4 bg-black text-white rounded-xl hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2 font-medium"
+                            className="w-full py-3 mt-4 bg-[#522B47] text-white rounded-xl hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2 font-medium"
                         >
                             <Calendar size={18} />
                             Schedule Meeting
@@ -802,7 +802,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                                                 }}
                                                 className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
                                                     isSelected
-                                                        ? 'bg-black text-white'
+                                                        ? 'bg-[#522B47] text-white'
                                                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                                 }`}
                                             >
@@ -877,7 +877,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                                     <button
                                         onClick={handleUpdateEvent}
                                         disabled={!editTitle.trim() || isUpdating}
-                                        className="flex-1 py-2 bg-black text-white rounded-xl hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
+                                        className="flex-1 py-2 bg-[#522B47] text-white rounded-xl hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
                                     >
                                         {isUpdating ? (
                                             <>
@@ -1005,7 +1005,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                                                 }}
                                                 className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
                                                     isSelected
-                                                        ? 'bg-black text-white'
+                                                        ? 'bg-[#522B47] text-white'
                                                         : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                                                 }`}
                                             >
@@ -1039,7 +1039,7 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                                 <button
                                     onClick={handleCreateMeeting}
                                     disabled={!title.trim() || isCreating}
-                                    className="flex-1 py-2 bg-black text-white rounded-xl hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
+                                    className="flex-1 py-2 bg-[#522B47] text-white rounded-xl hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer flex items-center justify-center gap-2"
                                 >
                                     {isCreating ? (
                                         <>
