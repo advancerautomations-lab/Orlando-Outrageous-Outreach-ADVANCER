@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Meeting, Lead, Message } from '../types';
 import { ChevronLeft, ChevronRight, Clock, X, Loader2, Users, Calendar, Trash2, TrendingUp, MessageSquare, Zap } from 'lucide-react';
 import { useGmail, CalendarEvent } from '../contexts/GmailContext';
@@ -45,6 +45,27 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
     const [isDeleting, setIsDeleting] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+    // Live clock for the "now" marker in the week timeline
+    const [nowTime, setNowTime] = useState(new Date());
+
+    // Loading screen: show for at least 2s while calendar data arrives
+    const [showLoader, setShowLoader] = useState(true);
+
+    // Drag-to-reschedule state
+    const dragEventRef = useRef<{ event: CalendarEvent } | null>(null);
+    const [dragOverDay, setDragOverDay] = useState<string | null>(null);
+
+    // Upcoming panel tab
+    const [upcomingTab, setUpcomingTab] = useState<'today' | 'leads' | 'potential'>('today');
+
+    // Create modal attendee mode
+    const [attendeeMode, setAttendeeMode] = useState<'lead' | 'custom'>('lead');
+    const [customEmail, setCustomEmail] = useState('');
+
+    // Drag-to-create state for day view timeline
+    const newEventDragRef = useRef<{ startY: number; scrollParent: Element | null } | null>(null);
+    const [newEventDragSel, setNewEventDragSel] = useState<{ top: number; height: number } | null>(null);
+
     const { isAuthenticated, getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = useGmail();
 
     // Timeline constants
@@ -73,6 +94,17 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
         return `${displayHour} ${ampm}`;
     };
 
+    // Convert a pixel Y position in the timeline to a snapped "HH:MM" string
+    const snapToQuarterHour = (pixelY: number): string => {
+        const maxY = hours.length * HOUR_HEIGHT;
+        const clamped = Math.max(0, Math.min(pixelY, maxY));
+        const totalMins = (clamped / HOUR_HEIGHT) * 60;
+        const snapped = Math.round(totalMins / 15) * 15;
+        const h = Math.floor(snapped / 60) + DAY_START_HOUR;
+        const m = snapped % 60;
+        return `${String(Math.min(h, 23)).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+
     const currentMonth = currentDate.toLocaleString('default', { month: 'long' });
     const currentYear = currentDate.getFullYear();
 
@@ -82,6 +114,18 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
             fetchEvents();
         }
     }, [currentDate, isAuthenticated]);
+
+    // Tick the "now" marker every minute
+    useEffect(() => {
+        const interval = setInterval(() => setNowTime(new Date()), 60_000);
+        return () => clearInterval(interval);
+    }, []);
+
+    // Show loader for at least 2s, then hide once data has also arrived
+    useEffect(() => {
+        const timer = setTimeout(() => setShowLoader(false), 2000);
+        return () => clearTimeout(timer);
+    }, []);
 
     const fetchEvents = async () => {
         setIsLoadingEvents(true);
@@ -171,6 +215,30 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
         return `${startTime} - ${endTime}`;
     };
 
+    // --- Week timeline helpers ---
+    const getWeekStart = (): Date => {
+        const d = new Date();
+        const day = d.getDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        return new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
+    };
+
+    const getWeekDays = (): Date[] => {
+        const monday = getWeekStart();
+        return Array.from({ length: 7 }, (_, i) => {
+            const d = new Date(monday);
+            d.setDate(monday.getDate() + i);
+            return d;
+        });
+    };
+
+    const getEventsForDate = (date: Date): CalendarEvent[] => {
+        const dateStr = date.toDateString();
+        return calendarEvents
+            .filter(e => new Date(e.start).toDateString() === dateStr)
+            .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+    };
+
     const handlePrevMonth = () => {
         setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1));
     };
@@ -195,14 +263,16 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
         end.setHours(endHour, endMin, 0, 0);
 
         const selectedLead = leads.find(l => l.id === selectedLeadId);
-        const attendeeEmail = selectedLead?.email;
+        const attendeeEmail = attendeeMode === 'custom'
+            ? (customEmail.trim() || undefined)
+            : selectedLead?.email;
 
         const success = await createCalendarEvent(
             title,
             description,
             start,
             end,
-            selectedLeadId || undefined,
+            attendeeMode === 'lead' ? (selectedLeadId || undefined) : undefined,
             attendeeEmail
         );
 
@@ -213,6 +283,8 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
             setTitle('');
             setDescription('');
             setSelectedLeadId('');
+            setCustomEmail('');
+            setAttendeeMode('lead');
             setStartTime('09:00');
             setEndTime('10:00');
             setShowCreateModal(false);
@@ -364,8 +436,85 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
         return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     };
 
+    // --- Drag-to-reschedule handlers ---
+    const handleDragStart = (ev: CalendarEvent) => {
+        dragEventRef.current = { event: ev };
+    };
+
+    const handleDragOver = (e: React.DragEvent, dateKey: string) => {
+        e.preventDefault();
+        setDragOverDay(dateKey);
+    };
+
+    const handleDragLeave = (e: React.DragEvent) => {
+        // Only clear if leaving the column entirely (not just a child)
+        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            setDragOverDay(null);
+        }
+    };
+
+    const handleDrop = async (e: React.DragEvent, targetDate: Date) => {
+        e.preventDefault();
+        setDragOverDay(null);
+        const dragged = dragEventRef.current;
+        if (!dragged) return;
+        dragEventRef.current = null;
+
+        const ev = dragged.event;
+        const origStart = new Date(ev.start);
+        const origEnd = new Date(ev.end);
+        const durationMs = origEnd.getTime() - origStart.getTime();
+
+        const newStart = new Date(targetDate);
+        newStart.setHours(origStart.getHours(), origStart.getMinutes(), 0, 0);
+        const newEnd = new Date(newStart.getTime() + durationMs);
+
+        await updateCalendarEvent(ev.id, ev.summary, ev.description || '', newStart, newEnd);
+        fetchEvents();
+    };
+
+    if (showLoader || isLoadingEvents) {
+        return (
+            <div className="h-full flex flex-col items-center justify-center gap-6 animate-fade-in">
+                {/* Animated calendar icon */}
+                <div className="relative">
+                    <div className="w-16 h-16 rounded-2xl bg-[#522B47] flex items-center justify-center shadow-xl">
+                        <Calendar size={28} className="text-[#FBEA74]" />
+                    </div>
+                    {/* Pulse ring */}
+                    <div className="absolute inset-0 rounded-2xl bg-[#522B47] animate-ping opacity-20" />
+                </div>
+
+                {/* Text */}
+                <div className="text-center">
+                    <p className="text-base font-semibold text-gray-700">Loading your schedule</p>
+                    <p className="text-sm text-gray-400 mt-1">Syncing with Google Calendar…</p>
+                </div>
+
+                {/* Animated dots */}
+                <div className="flex items-center gap-1.5">
+                    {[0, 1, 2].map(i => (
+                        <div
+                            key={i}
+                            className="w-2 h-2 rounded-full bg-[#522B47]"
+                            style={{ animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite` }}
+                        />
+                    ))}
+                </div>
+
+                <style>{`
+                    @keyframes bounce {
+                        0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+                        40% { transform: translateY(-8px); opacity: 1; }
+                    }
+                `}</style>
+            </div>
+        );
+    }
+
     return (
-        <div className="h-full flex gap-6 animate-fade-in">
+        <div className="flex flex-col gap-6 pb-8">
+            <div className="flex gap-6 animate-fade-in">
             <div className="flex-1 flex flex-col">
                 <div className="flex justify-between items-center mb-6">
                     <div>
@@ -424,62 +573,37 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                                         {day}
                                     </span>
                                     {hasEvents && (
-                                        <div className="mt-1">
-                                            {/* Lead avatars row */}
-                                            <div className="flex -space-x-1.5 mb-1">
-                                                {dayEvents.slice(0, 3).map((event) => {
-                                                    const lead = getLeadForEvent(event);
-                                                    if (lead?.avatar_url) {
-                                                        return (
-                                                            <img
-                                                                key={event.id}
-                                                                src={lead.avatar_url}
-                                                                alt=""
-                                                                className={`w-6 h-6 rounded-full object-cover ring-2 ${todayClass ? 'ring-black' : 'ring-white'}`}
-                                                            />
-                                                        );
-                                                    }
-                                                    if (lead) {
-                                                        return (
-                                                            <div
-                                                                key={event.id}
-                                                                className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold ring-2 ${
-                                                                    todayClass
-                                                                        ? 'bg-white/30 text-white ring-black'
-                                                                        : 'bg-accent-beige text-black ring-white'
-                                                                }`}
-                                                                title={`${lead.first_name} ${lead.last_name}`}
-                                                            >
-                                                                {lead.first_name[0]}{lead.last_name[0]}
-                                                            </div>
-                                                        );
-                                                    }
-                                                    // Event without a matching lead — show calendar dot
-                                                    return (
-                                                        <div
-                                                            key={event.id}
-                                                            className={`w-6 h-6 rounded-full flex items-center justify-center ring-2 ${
-                                                                todayClass
-                                                                    ? 'bg-white/20 ring-black'
-                                                                    : 'bg-gray-200 ring-white'
-                                                            }`}
-                                                        >
-                                                            <Calendar size={10} className={todayClass ? 'text-white' : 'text-gray-500'} />
-                                                        </div>
-                                                    );
-                                                })}
-                                                {dayEvents.length > 3 && (
-                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold ring-2 ${
-                                                        todayClass ? 'bg-white/20 text-white ring-black' : 'bg-gray-100 text-gray-500 ring-white'
-                                                    }`}>
-                                                        +{dayEvents.length - 3}
+                                        <div className="mt-1 flex flex-col gap-0.5">
+                                            {[...dayEvents]
+                                                .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+                                                .slice(0, 3)
+                                                .map((event) => (
+                                                    <div
+                                                        key={event.id}
+                                                        className={`flex items-center gap-1 rounded-md px-1 py-0.5 ${
+                                                            todayClass ? 'bg-white/15' : 'bg-white/70'
+                                                        }`}
+                                                    >
+                                                        <span className={`text-[9px] font-semibold shrink-0 ${
+                                                            todayClass ? 'text-[#FBEA74]' : 'text-[#522B47]'
+                                                        }`}>
+                                                            {new Date(event.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                                        </span>
+                                                        <span className={`text-[9px] truncate ${
+                                                            todayClass ? 'text-white/80' : 'text-gray-600'
+                                                        }`}>
+                                                            {event.summary}
+                                                        </span>
                                                     </div>
-                                                )}
-                                            </div>
-                                            {/* First event title */}
-                                            <div className={`text-[10px] truncate px-0.5 ${todayClass ? 'text-gray-300' : 'text-gray-500'}`}>
-                                                {dayEvents[0].summary}
-                                            </div>
+                                                ))
+                                            }
+                                            {dayEvents.length > 3 && (
+                                                <div className={`text-[9px] font-medium px-1 ${
+                                                    todayClass ? 'text-white/50' : 'text-gray-400'
+                                                }`}>
+                                                    +{dayEvents.length - 3} more
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -489,116 +613,381 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                 </div>
             </div>
 
-            {/* Sidebar Panels */}
+            {/* Sidebar — Tabbed Upcoming Panel */}
             <div className="w-80 flex flex-col gap-4 overflow-y-auto">
-                {/* Hot Leads Section */}
-                {hotLeads.length > 0 && (
-                    <div className="glass-card p-5 rounded-2xl">
-                        <div className="flex items-center gap-2 mb-4">
-                            <div className="p-1.5 bg-orange-100 rounded-lg">
-                                <Zap size={16} className="text-orange-600" />
-                            </div>
-                            <h3 className="font-serif font-bold text-lg">Hot Leads</h3>
-                        </div>
-                        <p className="text-xs text-gray-500 mb-4">Most active conversations - ready to schedule</p>
-                        <div className="space-y-3">
-                            {hotLeads.map(({ lead, messageCount, lastActivity, recentMessages }) => (
-                                <div
-                                    key={lead.id}
-                                    className="p-3 rounded-xl bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 hover:shadow-md transition-all group"
+                <div className="glass-card p-5 rounded-2xl flex-1 flex flex-col">
+                    {/* Header with tabs */}
+                    <div className="flex items-center justify-between mb-4 gap-2">
+                        <h3 className="font-serif font-bold text-lg shrink-0">Upcoming</h3>
+                        <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+                            {(['today', 'leads', 'potential'] as const).map(tab => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setUpcomingTab(tab)}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer capitalize ${
+                                        upcomingTab === tab
+                                            ? 'bg-[#522B47] text-white shadow-sm'
+                                            : 'text-gray-500 hover:text-gray-700'
+                                    }`}
                                 >
-                                    <div className="flex items-start justify-between gap-2">
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="font-semibold text-gray-900 text-sm truncate">
-                                                {lead.first_name} {lead.last_name}
-                                            </h4>
-                                            <p className="text-xs text-gray-500 truncate">{lead.company}</p>
-                                        </div>
-                                        <button
-                                            onClick={() => handleQuickSchedule(lead)}
-                                            disabled={!isAuthenticated}
-                                            className="px-3 py-1.5 bg-[#522B47] text-white text-xs font-medium rounded-lg hover:bg-[#3D1F35] transition-colors cursor-pointer opacity-0 group-hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                                        >
-                                            Schedule
-                                        </button>
-                                    </div>
-                                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                                        <div className="flex items-center gap-1">
-                                            <MessageSquare size={12} />
-                                            <span>{messageCount} messages</span>
-                                        </div>
-                                        {recentMessages > 0 && (
-                                            <div className="flex items-center gap-1 text-orange-600 font-medium">
-                                                <TrendingUp size={12} />
-                                                <span>{recentMessages} this week</span>
-                                            </div>
-                                        )}
-                                    </div>
-                                    <div className="text-xs text-gray-400 mt-1">
-                                        Last: {formatRelativeTime(lastActivity)}
-                                    </div>
-                                </div>
+                                    {tab === 'potential' ? '⚡ Potential' : tab === 'leads' ? '👤 Leads' : '📅 Today'}
+                                </button>
                             ))}
                         </div>
                     </div>
-                )}
 
-                {/* Upcoming Panel */}
-                <div className="glass-card p-5 rounded-2xl flex-1">
-                    <h3 className="font-serif font-bold text-lg mb-4">Upcoming</h3>
-                    <div className="space-y-3">
-                        {upcomingMeetings.length === 0 && calendarEvents.filter(e => new Date(e.start) >= new Date()).length === 0 ? (
-                            <p className="text-gray-400 text-sm text-center py-6">No upcoming meetings</p>
-                        ) : (
-                            <>
-                                {upcomingMeetings.slice(0, 3).map(meeting => (
-                                    <div key={meeting.id} className="p-3 rounded-xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-all">
-                                        <div className="flex items-center gap-2 mb-1 text-xs font-semibold text-accent-pink uppercase tracking-wide">
-                                            {new Date(meeting.start_time).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                                        </div>
-                                        <h4 className="font-bold text-gray-900 text-sm leading-tight">{meeting.title}</h4>
-                                        <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-                                            <Clock size={12} />
-                                            <span>
-                                                {new Date(meeting.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                            </span>
-                                        </div>
+                    {/* Tab content */}
+                    <div className="flex-1 flex flex-col gap-3 min-h-0">
+                        {/* TODAY TAB */}
+                        {upcomingTab === 'today' && (() => {
+                            const todayStr = new Date().toDateString();
+                            const now = new Date();
+                            const todayEvents = calendarEvents
+                                .filter(e => new Date(e.start).toDateString() === todayStr && new Date(e.start) >= now)
+                                .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+                            const todayMeetings = upcomingMeetings.filter(m =>
+                                new Date(m.start_time).toDateString() === todayStr
+                            );
+
+                            if (todayEvents.length === 0 && todayMeetings.length === 0) {
+                                return (
+                                    <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+                                        <Calendar size={28} className="text-gray-200 mb-2" />
+                                        <p className="text-gray-400 text-sm font-medium">No more meetings today</p>
+                                        <p className="text-gray-300 text-xs mt-1">Enjoy the rest of your day!</p>
                                     </div>
-                                ))}
-                                {calendarEvents
-                                    .filter(e => new Date(e.start) >= new Date())
-                                    .slice(0, 2)
-                                    .map(event => (
-                                        <div key={event.id} className="p-3 rounded-xl bg-gray-50 border border-gray-100 shadow-sm">
-                                            <div className="flex items-center gap-2 mb-1 text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                                                <Calendar size={12} />
-                                                {new Date(event.start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                );
+                            }
+
+                            return (
+                                <>
+                                    {todayMeetings.map(meeting => (
+                                        <div key={meeting.id} className="p-3 rounded-xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-all">
+                                            <div className="flex items-center gap-1 mb-1 text-xs font-semibold text-[#522B47] uppercase tracking-wide">
+                                                <Clock size={10} />
+                                                {new Date(meeting.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                            <h4 className="font-bold text-gray-900 text-sm leading-tight">{meeting.title}</h4>
+                                        </div>
+                                    ))}
+                                    {todayEvents.map(event => (
+                                        <div key={event.id} className="p-3 rounded-xl bg-white border border-gray-100 shadow-sm hover:shadow-md transition-all">
+                                            <div className="flex items-center gap-1 mb-1 text-xs font-semibold text-[#522B47] uppercase tracking-wide">
+                                                <Clock size={10} />
+                                                {new Date(event.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                {' – '}
+                                                {new Date(event.end).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </div>
                                             <h4 className="font-bold text-gray-900 text-sm leading-tight">{event.summary}</h4>
-                                            <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-                                                <Clock size={12} />
-                                                <span>
+                                        </div>
+                                    ))}
+                                </>
+                            );
+                        })()}
+
+                        {/* LEADS TAB */}
+                        {upcomingTab === 'leads' && (() => {
+                            const now = new Date();
+                            const leadEvents = calendarEvents
+                                .filter(e => new Date(e.start) >= now && getLeadForEvent(e) !== null)
+                                .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+                            if (leadEvents.length === 0) {
+                                return (
+                                    <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+                                        <Users size={28} className="text-gray-200 mb-2" />
+                                        <p className="text-gray-400 text-sm font-medium">No upcoming lead meetings</p>
+                                        <p className="text-gray-300 text-xs mt-1">Schedule a meeting with a lead to see it here</p>
+                                    </div>
+                                );
+                            }
+
+                            return (
+                                <>
+                                    {leadEvents.map(event => {
+                                        const lead = getLeadForEvent(event)!;
+                                        const isToday = new Date(event.start).toDateString() === new Date().toDateString();
+                                        return (
+                                            <div key={event.id} className="p-3 rounded-xl bg-blue-50 border border-blue-100 shadow-sm hover:shadow-md transition-all">
+                                                <div className="flex items-center gap-1 mb-1 text-xs font-semibold text-blue-600 uppercase tracking-wide">
+                                                    <Clock size={10} />
+                                                    {isToday ? 'Today' : new Date(event.start).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                    {' · '}
                                                     {new Date(event.start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
+                                                </div>
+                                                <h4 className="font-bold text-gray-900 text-sm leading-tight">{event.summary}</h4>
+                                                <div className="flex items-center gap-1 mt-1.5 text-xs text-blue-600 font-medium">
+                                                    <Users size={10} />
+                                                    <span>{lead.first_name} {lead.last_name}</span>
+                                                    {lead.company && <span className="text-blue-400">· {lead.company}</span>}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </>
+                            );
+                        })()}
+
+                        {/* POTENTIAL TAB */}
+                        {upcomingTab === 'potential' && (() => {
+                            if (hotLeads.length === 0) {
+                                return (
+                                    <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+                                        <Zap size={28} className="text-gray-200 mb-2" />
+                                        <p className="text-gray-400 text-sm font-medium">No active leads yet</p>
+                                        <p className="text-gray-300 text-xs mt-1">Leads with recent messages will appear here</p>
+                                    </div>
+                                );
+                            }
+
+                            return (
+                                <>
+                                    <p className="text-xs text-gray-400 -mt-1 mb-1">Sorted by engagement — most likely to book</p>
+                                    {hotLeads.map(({ lead, messageCount, lastActivity, recentMessages }) => (
+                                        <div
+                                            key={lead.id}
+                                            className="p-3 rounded-xl bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-100 hover:shadow-md transition-all group"
+                                        >
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="flex-1 min-w-0">
+                                                    <h4 className="font-semibold text-gray-900 text-sm truncate">
+                                                        {lead.first_name} {lead.last_name}
+                                                    </h4>
+                                                    <p className="text-xs text-gray-500 truncate">{lead.company}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleQuickSchedule(lead)}
+                                                    disabled={!isAuthenticated}
+                                                    className="px-2.5 py-1 bg-[#522B47] text-white text-[11px] font-medium rounded-lg hover:bg-[#3D1F35] transition-colors cursor-pointer opacity-0 group-hover:opacity-100 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                                                >
+                                                    Schedule
+                                                </button>
+                                            </div>
+                                            <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                                                <div className="flex items-center gap-1">
+                                                    <MessageSquare size={11} />
+                                                    <span>{messageCount} msgs</span>
+                                                </div>
+                                                {recentMessages > 0 && (
+                                                    <div className="flex items-center gap-1 text-orange-600 font-medium">
+                                                        <TrendingUp size={11} />
+                                                        <span>{recentMessages} this week</span>
+                                                    </div>
+                                                )}
+                                                <span className="text-gray-300 ml-auto">{formatRelativeTime(lastActivity)}</span>
                                             </div>
                                         </div>
                                     ))}
-                            </>
-                        )}
-
-                        <button
-                            onClick={() => {
-                                setSelectedDate(new Date());
-                                setShowDayViewModal(true);
-                            }}
-                            disabled={!isAuthenticated}
-                            className="w-full p-3 rounded-xl border border-dashed border-gray-300 text-center text-gray-400 text-sm hover:border-gray-400 hover:text-gray-600 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isAuthenticated ? '+ Schedule Meeting' : 'Connect Google to schedule'}
-                        </button>
+                                </>
+                            );
+                        })()}
                     </div>
+
+                    {/* Schedule button — always visible */}
+                    <button
+                        onClick={() => {
+                            setSelectedDate(new Date());
+                            setShowDayViewModal(true);
+                        }}
+                        disabled={!isAuthenticated}
+                        className="w-full p-3 mt-4 rounded-xl border border-dashed border-gray-300 text-center text-gray-400 text-sm hover:border-gray-400 hover:text-gray-600 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {isAuthenticated ? '+ Schedule Meeting' : 'Connect Google to schedule'}
+                    </button>
                 </div>
             </div>
+            </div>{/* end flex gap-6 top row */}
+
+            {/* ── Week Timeline ──────────────────────────────────────── */}
+            {(() => {
+                const weekDays = getWeekDays();
+                const todayStr = new Date().toDateString();
+                const weekStart = weekDays[0];
+                const weekEnd = weekDays[6];
+                const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                const DAY_NAMES = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+
+                return (
+                    <div className="glass-card rounded-2xl p-6 animate-fade-in">
+                        {/* Header */}
+                        <div className="flex items-center justify-between pb-4 mb-5 border-b border-gray-100">
+                            <div>
+                                <h3 className="font-serif font-bold text-xl text-black">This Week</h3>
+                                <p className="text-xs text-gray-400 mt-0.5">{fmt(weekStart)} – {fmt(weekEnd)}</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                                <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-[#FBEA74] border border-[#e8d455] inline-block" />
+                                    Now
+                                </div>
+                                <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                                    <span className="w-2.5 h-2.5 rounded-full bg-[#522B47]/20 border border-[#522B47]/30 inline-block" />
+                                    Click to add
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 7-column grid */}
+                        <div className="grid grid-cols-7 gap-3">
+                            {weekDays.map((date, i) => {
+                                const isToday = date.toDateString() === todayStr;
+                                const isPast = date < new Date(new Date().setHours(0, 0, 0, 0));
+                                const dateKey = date.toISOString();
+                                const isDragOver = dragOverDay === dateKey;
+                                const events = getEventsForDate(date);
+
+                                // Build items: sorted events interleaved with "now" marker for today
+                                type TimelineItem =
+                                    | { type: 'event'; event: CalendarEvent }
+                                    | { type: 'now' };
+
+                                let items: TimelineItem[] = [];
+                                if (isToday) {
+                                    let nowInserted = false;
+                                    for (const event of events) {
+                                        if (!nowInserted && new Date(event.start) >= nowTime) {
+                                            items.push({ type: 'now' });
+                                            nowInserted = true;
+                                        }
+                                        items.push({ type: 'event', event });
+                                    }
+                                    if (!nowInserted) items.push({ type: 'now' });
+                                } else {
+                                    items = events.map(e => ({ type: 'event', event: e }));
+                                }
+
+                                return (
+                                    <div
+                                        key={dateKey}
+                                        className={`flex flex-col min-h-[200px] rounded-xl transition-all duration-150 ${
+                                            i < weekDays.length - 1 ? 'border-r border-gray-100 pr-3' : ''
+                                        } ${isDragOver ? 'bg-[#522B47]/5 ring-2 ring-[#522B47]/25 ring-inset' : ''}`}
+                                        onDragOver={(e) => handleDragOver(e, dateKey)}
+                                        onDragLeave={handleDragLeave}
+                                        onDrop={(e) => handleDrop(e, date)}
+                                    >
+                                        {/* Day header */}
+                                        <div className={`rounded-xl px-2 py-2.5 mb-3 text-center transition-all ${
+                                            isToday
+                                                ? 'bg-[#522B47] shadow-lg ring-1 ring-[#522B47]/20'
+                                                : isPast
+                                                    ? 'bg-gray-50'
+                                                    : 'bg-white/70 border border-gray-100 shadow-sm'
+                                        }`}>
+                                            <div className={`text-[10px] font-bold tracking-widest uppercase ${
+                                                isToday ? 'text-[#FBEA74]' : isPast ? 'text-gray-300' : 'text-gray-400'
+                                            }`}>
+                                                {DAY_NAMES[i]}
+                                            </div>
+                                            <div className={`text-lg font-bold leading-tight mt-0.5 ${
+                                                isToday ? 'text-white' : isPast ? 'text-gray-300' : 'text-gray-800'
+                                            }`}>
+                                                {date.getDate()}
+                                            </div>
+                                        </div>
+
+                                        {/* Events area — click empty space to create */}
+                                        <div
+                                            className="flex flex-col gap-1.5 flex-1 group/col rounded-lg p-1 cursor-pointer hover:bg-[#522B47]/[0.03] transition-colors"
+                                            onClick={() => {
+                                                if (!isAuthenticated) return;
+                                                setSelectedDate(date);
+                                                setTitle('');
+                                                setDescription('');
+                                                setSelectedLeadId('');
+                                                setStartTime('09:00');
+                                                setEndTime('10:00');
+                                                setShowCreateModal(true);
+                                            }}
+                                        >
+                                            {/* Empty state with add hint */}
+                                            {items.length === 0 && (
+                                                <div className="flex flex-col items-center justify-center flex-1 gap-1 pt-4 pb-2">
+                                                    <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-all opacity-0 group-hover/col:opacity-100 ${
+                                                        isToday ? 'bg-white/20' : 'bg-[#522B47]/10'
+                                                    }`}>
+                                                        <span className={`text-sm font-light leading-none ${isToday ? 'text-white/60' : 'text-[#522B47]/50'}`}>+</span>
+                                                    </div>
+                                                    <p className={`text-[10px] text-center italic ${isPast ? 'text-gray-300' : 'text-gray-300'}`}>
+                                                        No events
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {items.map((item) => {
+                                                if (item.type === 'now') {
+                                                    return (
+                                                        <div
+                                                            key="now-marker"
+                                                            className="flex items-center gap-1.5 my-1"
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            <div className="w-2 h-2 rounded-full bg-[#FBEA74] border border-[#e8d455] shrink-0" />
+                                                            <div className="flex-1 h-[2px] bg-[#FBEA74] rounded-full" />
+                                                            <span className="text-[9px] font-bold text-[#FBEA74] shrink-0">NOW</span>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                const ev = item.event;
+                                                const evStartTime = new Date(ev.start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+                                                const isPastEvent = new Date(ev.end) < nowTime;
+                                                const isOwner = ev.organizerSelf === true;
+
+                                                return (
+                                                    <div
+                                                        key={ev.id}
+                                                        draggable={isOwner}
+                                                        onDragStart={isOwner ? () => handleDragStart(ev) : undefined}
+                                                        onDragEnd={isOwner ? () => { dragEventRef.current = null; } : undefined}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleEventClick(ev, e);
+                                                        }}
+                                                        title={isOwner ? 'Drag to reschedule' : 'You were invited to this event'}
+                                                        className={`rounded-lg px-2 py-1.5 transition-all duration-150 select-none ${
+                                                            isOwner ? 'cursor-grab active:cursor-grabbing hover:-translate-y-0.5 hover:shadow-md' : 'cursor-default'
+                                                        } ${
+                                                            isToday
+                                                                ? isPastEvent
+                                                                    ? 'bg-[#522B47]/25 opacity-50'
+                                                                    : 'bg-[#522B47] shadow-md hover:bg-[#3D1F35] week-event-card-today'
+                                                                : isPast
+                                                                    ? 'bg-gray-50 opacity-60'
+                                                                    : 'bg-white border border-gray-100 shadow-sm hover:border-gray-200 hover:shadow-md'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-1 mb-0.5">
+                                                            <span className={`text-[9px] font-bold ${isToday ? 'text-[#FBEA74]' : 'text-[#522B47]'}`}>
+                                                                {evStartTime}
+                                                            </span>
+                                                            {!isOwner && (
+                                                                <span className={`text-[8px] ${isToday ? 'text-white/40' : 'text-gray-300'}`} title="Invited">●</span>
+                                                            )}
+                                                        </div>
+                                                        <div className={`text-[10px] leading-tight truncate font-medium ${
+                                                            isToday ? 'text-white/90' : isPast ? 'text-gray-400' : 'text-gray-700'
+                                                        }`}>
+                                                            {ev.summary}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+
+                                            {/* "Add event" ghost hint when column has events but user hovers */}
+                                            {items.length > 0 && (
+                                                <div className="opacity-0 group-hover/col:opacity-100 transition-opacity mt-1 text-center">
+                                                    <span className={`text-[9px] ${isToday ? 'text-white/30' : 'text-[#522B47]/30'}`}>+ add</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Day View Modal - Timeline */}
             {showDayViewModal && selectedDate && (
@@ -636,65 +1025,191 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
 
                                 {/* Timeline grid with events */}
                                 <div
-                                    className="flex-1 relative bg-white"
-                                    onClick={(e) => {
-                                        // Calculate time from click position
+                                    className={`flex-1 relative bg-white select-none ${newEventDragSel ? 'cursor-ns-resize' : 'cursor-crosshair'}`}
+                                    style={{ minHeight: `${hours.length * HOUR_HEIGHT}px` }}
+                                    onMouseDown={(e) => {
+                                        if ((e.target as Element).closest('[data-event-id]')) return;
+                                        e.preventDefault();
                                         const rect = e.currentTarget.getBoundingClientRect();
-                                        const scrollTop = e.currentTarget.closest('.overflow-y-auto')?.scrollTop || 0;
-                                        const clickY = e.clientY - rect.top + scrollTop;
-                                        const clickedHour = Math.floor(clickY / HOUR_HEIGHT) + DAY_START_HOUR;
-                                        const clickedMinutes = Math.round((clickY % HOUR_HEIGHT) / HOUR_HEIGHT * 60 / 15) * 15; // Round to nearest 15 min
+                                        const scrollParent = e.currentTarget.closest('.overflow-y-auto');
+                                        const scrollTop = scrollParent?.scrollTop || 0;
+                                        const y = Math.max(0, e.clientY - rect.top + scrollTop);
+                                        newEventDragRef.current = { startY: y, scrollParent: scrollParent || null };
+                                        setNewEventDragSel({ top: y, height: 0 });
+                                    }}
+                                    onMouseMove={(e) => {
+                                        if (!newEventDragRef.current) return;
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const scrollTop = newEventDragRef.current.scrollParent?.scrollTop || 0;
+                                        const y = Math.max(0, e.clientY - rect.top + scrollTop);
+                                        const top = Math.min(newEventDragRef.current.startY, y);
+                                        const height = Math.abs(y - newEventDragRef.current.startY);
+                                        setNewEventDragSel({ top, height });
+                                    }}
+                                    onMouseUp={(e) => {
+                                        if (!newEventDragRef.current) return;
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const scrollTop = newEventDragRef.current.scrollParent?.scrollTop || 0;
+                                        const endY = Math.max(0, e.clientY - rect.top + scrollTop);
+                                        const { startY } = newEventDragRef.current;
+                                        newEventDragRef.current = null;
+                                        setNewEventDragSel(null);
 
-                                        // Format times
-                                        const startHourStr = String(Math.min(clickedHour, 23)).padStart(2, '0');
-                                        const startMinStr = String(clickedMinutes % 60).padStart(2, '0');
-                                        const endHour = clickedMinutes >= 60 ? clickedHour + 2 : clickedHour + 1;
-                                        const endMinStr = startMinStr;
+                                        const minY = Math.min(startY, endY);
+                                        const maxY = Math.max(startY, endY);
+                                        const isDrag = maxY - minY > 15;
 
-                                        setStartTime(`${startHourStr}:${startMinStr}`);
-                                        setEndTime(`${String(Math.min(endHour, 23)).padStart(2, '0')}:${endMinStr}`);
+                                        setStartTime(snapToQuarterHour(minY));
+                                        setEndTime(isDrag ? snapToQuarterHour(maxY) : snapToQuarterHour(minY + HOUR_HEIGHT));
                                         setShowDayViewModal(false);
                                         setShowCreateModal(true);
+                                    }}
+                                    onMouseLeave={() => {
+                                        newEventDragRef.current = null;
+                                        setNewEventDragSel(null);
                                     }}
                                 >
                                     {/* Grid lines */}
                                     {hours.map(hour => (
-                                        <div key={hour} className="h-[60px] border-b border-gray-100 hover:bg-gray-50/50 cursor-pointer" />
+                                        <div key={hour} className="h-[60px] border-b border-gray-100 hover:bg-gray-50/40" />
                                     ))}
 
-                                    {/* Events positioned absolutely */}
-                                    {getSelectedDateEvents().map(event => {
-                                        const yPos = calculateYPosition(event.start);
-                                        const height = calculateHeight(event.start, event.end);
+                                    {/* Drag-to-create selection overlay */}
+                                    {newEventDragSel && newEventDragSel.height > 4 && (
+                                        <div
+                                            className="absolute left-0 right-0 bg-[#522B47]/20 border-2 border-[#522B47]/50 rounded-lg pointer-events-none z-20"
+                                            style={{ top: `${newEventDragSel.top}px`, height: `${newEventDragSel.height}px` }}
+                                        >
+                                            {newEventDragSel.height > 24 && (
+                                                <div className="px-2 py-1 text-[10px] font-semibold text-[#522B47]">
+                                                    {snapToQuarterHour(newEventDragSel.top)} – {snapToQuarterHour(newEventDragSel.top + newEventDragSel.height)}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
+                                    {/* NOW indicator line (today only) */}
+                                    {(() => {
+                                        const now = new Date();
+                                        if (selectedDate?.toDateString() !== now.toDateString()) return null;
+                                        const nowHrs = now.getHours();
+                                        const nowMins = now.getMinutes();
+                                        const nowY = ((nowHrs - DAY_START_HOUR) * HOUR_HEIGHT) + (nowMins / 60 * HOUR_HEIGHT);
+                                        if (nowY < 0 || nowY > hours.length * HOUR_HEIGHT) return null;
                                         return (
                                             <div
-                                                key={event.id}
-                                                onClick={(e) => handleEventClick(event, e)}
-                                                className="absolute left-1 right-1 bg-[#522B47] text-white rounded-lg p-2 cursor-pointer hover:bg-[#3D1F35] transition-colors shadow-md overflow-hidden"
-                                                style={{
-                                                    top: `${yPos}px`,
-                                                    height: `${height}px`,
-                                                    minHeight: '40px'
-                                                }}
+                                                className="absolute left-0 right-0 z-10 pointer-events-none flex items-center"
+                                                style={{ top: `${nowY}px` }}
                                             >
-                                                <div className="text-sm font-medium truncate">{event.summary}</div>
-                                                <div className="text-xs opacity-75">{formatEventTime(event.start, event.end)}</div>
-                                                {event.attendees && event.attendees.length > 0 && height > 60 && (
-                                                    <div className="text-xs opacity-60 truncate mt-1">
-                                                        {event.attendees.map(a => a.email).join(', ')}
-                                                    </div>
-                                                )}
+                                                <div className="w-3 h-3 rounded-full bg-red-500 border-2 border-white shadow shrink-0 -ml-1.5" />
+                                                <div className="flex-1 h-[2px] bg-red-400" />
                                             </div>
                                         );
-                                    })}
+                                    })()}
 
-                                    {/* Empty state - click hint */}
+                                    {/* Events positioned absolutely with correct overlap resolution */}
+                                    {(() => {
+                                        const dayEvents = getSelectedDateEvents();
+
+                                        type LayoutEvent = {
+                                            event: CalendarEvent;
+                                            top: number;
+                                            height: number;
+                                            col: number;
+                                            totalCols: number;
+                                            startMs: number;
+                                            endMs: number;
+                                        };
+
+                                        const layouts: LayoutEvent[] = [];
+                                        // Track where each column visually ends (in pixels, not time)
+                                        // This accounts for minHeight clamping that makes short events taller
+                                        const colEndPixels: number[] = [];
+
+                                        // Pass 1: greedily assign each event to the first column
+                                        // where it doesn't VISUALLY overlap (pixel-based, not time-based)
+                                        for (const event of dayEvents) {
+                                            const rawTop = calculateYPosition(event.start);
+                                            const top = Math.max(0, rawTop);
+                                            const height = calculateHeight(event.start, event.end);
+                                            const startMs = new Date(event.start).getTime();
+                                            const endMs = new Date(event.end).getTime();
+
+                                            let col = 0;
+                                            while (col < colEndPixels.length && colEndPixels[col] > top) col++;
+                                            colEndPixels[col] = top + height;
+
+                                            layouts.push({ event, top, height, col, totalCols: 1, startMs, endMs });
+                                        }
+
+                                        // Pass 2: find each event's VISUAL overlap group and set uniform totalCols
+                                        for (const layout of layouts) {
+                                            const group = layouts.filter(o =>
+                                                o.top < layout.top + layout.height && o.top + o.height > layout.top
+                                            );
+                                            const maxCol = Math.max(...group.map(o => o.col));
+                                            const tc = maxCol + 1;
+                                            for (const o of group) {
+                                                if (tc > o.totalCols) o.totalCols = tc;
+                                            }
+                                        }
+
+                                        return layouts.map(({ event, top, height, col, totalCols }) => {
+                                            const lead = getLeadForEvent(event);
+                                            const isLeadEvent = lead !== null;
+                                            // Each column gets an equal share of 100% width, with 3px gap between columns
+                                            const GUTTER = 3;
+                                            const slotWidthPct = 100 / totalCols;
+                                            // left offset in % + any left gutter
+                                            const leftPct = col * slotWidthPct;
+                                            // width = slot% minus gutters on each side
+                                            const leftGutter = col > 0 ? GUTTER : 0;
+                                            const rightGutter = col < totalCols - 1 ? GUTTER : 0;
+
+                                            return (
+                                                <div
+                                                    key={event.id}
+                                                    data-event-id={event.id}
+                                                    onClick={(e) => handleEventClick(event, e)}
+                                                    className={`absolute rounded-lg p-2 cursor-pointer transition-colors overflow-hidden shadow-md ${
+                                                        isLeadEvent
+                                                            ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                                                            : 'bg-[#522B47] hover:bg-[#3D1F35] text-white'
+                                                    }`}
+                                                    style={{
+                                                        top: `${top}px`,
+                                                        height: `${height}px`,
+                                                        minHeight: '36px',
+                                                        left: `calc(${leftPct}% + ${leftGutter}px)`,
+                                                        width: `calc(${slotWidthPct}% - ${leftGutter + rightGutter}px)`,
+                                                    }}
+                                                >
+                                                    {/* Time range */}
+                                                    <div className="text-[10px] font-semibold opacity-75 leading-tight whitespace-nowrap overflow-hidden text-ellipsis">
+                                                        {formatEventTime(event.start, event.end)}
+                                                    </div>
+                                                    {/* Title */}
+                                                    <div className="text-xs font-semibold leading-tight mt-0.5 line-clamp-2">
+                                                        {event.summary}
+                                                    </div>
+                                                    {/* Lead badge */}
+                                                    {isLeadEvent && height > 52 && (
+                                                        <div className="mt-1 flex items-center gap-1 text-[10px] font-medium bg-white/20 rounded px-1.5 py-0.5 w-fit max-w-full">
+                                                            <Users size={9} className="shrink-0" />
+                                                            <span className="truncate">{lead!.first_name} {lead!.last_name}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        });
+                                    })()}
+
+                                    {/* Empty state */}
                                     {getSelectedDateEvents().length === 0 && (
                                         <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 pointer-events-none">
-                                            <Calendar size={40} className="mb-3 opacity-50" />
-                                            <p className="text-sm">No meetings scheduled</p>
-                                            <p className="text-xs mt-1">Click anywhere to schedule</p>
+                                            <Calendar size={40} className="mb-3 opacity-30" />
+                                            <p className="text-sm font-medium">No events scheduled</p>
+                                            <p className="text-xs mt-1 opacity-70">Click any time slot to create one</p>
                                         </div>
                                     )}
                                 </div>
@@ -934,28 +1449,61 @@ const CalendarView: React.FC<CalendarViewProps> = ({ meetings, leads, messages }
                                 />
                             </div>
 
-                            {/* Lead selector */}
+                            {/* Attendee selector */}
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                <label className="block text-sm font-medium text-gray-700 mb-2">
                                     <Users size={14} className="inline mr-1" />
-                                    With Lead (optional)
+                                    Invite (optional)
                                 </label>
-                                <select
-                                    value={selectedLeadId}
-                                    onChange={(e) => setSelectedLeadId(e.target.value)}
-                                    className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black/5 focus:border-black/20 outline-none bg-white"
-                                >
-                                    <option value="">Select a lead...</option>
-                                    {leads.map(lead => (
-                                        <option key={lead.id} value={lead.id}>
-                                            {lead.first_name} {lead.last_name} - {lead.company}
-                                        </option>
-                                    ))}
-                                </select>
-                                {selectedLeadId && (
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        Invite will be sent to {leads.find(l => l.id === selectedLeadId)?.email}
-                                    </p>
+                                {/* Mode toggle */}
+                                <div className="flex gap-0.5 mb-2 bg-gray-100 rounded-lg p-0.5">
+                                    <button
+                                        type="button"
+                                        onClick={() => setAttendeeMode('lead')}
+                                        className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                                            attendeeMode === 'lead' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400 hover:text-gray-600'
+                                        }`}
+                                    >
+                                        From Leads
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAttendeeMode('custom')}
+                                        className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
+                                            attendeeMode === 'custom' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-400 hover:text-gray-600'
+                                        }`}
+                                    >
+                                        Custom Email
+                                    </button>
+                                </div>
+                                {attendeeMode === 'lead' ? (
+                                    <>
+                                        <select
+                                            value={selectedLeadId}
+                                            onChange={(e) => setSelectedLeadId(e.target.value)}
+                                            className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black/5 focus:border-black/20 outline-none bg-white"
+                                        >
+                                            <option value="">Select a lead...</option>
+                                            {leads.map(lead => (
+                                                <option key={lead.id} value={lead.id}>
+                                                    {lead.first_name} {lead.last_name} - {lead.company}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {selectedLeadId && (
+                                            <p className="text-xs text-gray-500 mt-1">
+                                                Invite will be sent to {leads.find(l => l.id === selectedLeadId)?.email}
+                                            </p>
+                                        )}
+                                    </>
+                                ) : (
+                                    <input
+                                        type="email"
+                                        value={customEmail}
+                                        onChange={(e) => setCustomEmail(e.target.value)}
+                                        placeholder="attendee@example.com"
+                                        className="w-full px-4 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-black/5 focus:border-black/20 outline-none"
+                                    />
                                 )}
                             </div>
 

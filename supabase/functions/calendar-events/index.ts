@@ -102,7 +102,8 @@ serve(async (req) => {
                 email: a.email,
                 responseStatus: a.responseStatus
             })),
-            htmlLink: event.htmlLink
+            htmlLink: event.htmlLink,
+            organizerSelf: event.organizer?.self === true
         }))
 
         return new Response(

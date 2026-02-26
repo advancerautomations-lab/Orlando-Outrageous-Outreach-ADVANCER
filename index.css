@@ -166,8 +166,9 @@ body, .glass-panel, .glass-card, input, textarea, select {
 .dark .text-emerald-700 { color: #34D399 !important; }
 .dark .text-emerald-600 { color: #34D399 !important; }
 
-/* --- Blue-50/60 outreach box specific --- */
+/* --- Blue-50 opacity variants (outreach box, notification unread items) --- */
 .dark .bg-blue-50\/60 { background-color: rgba(59, 130, 246, 0.1) !important; }
+.dark .bg-blue-50\/50 { background-color: rgba(59, 130, 246, 0.1) !important; }
 .dark .border-blue-100 { border-color: rgba(59, 130, 246, 0.2) !important; }
 .dark .border-blue-200 { border-color: rgba(59, 130, 246, 0.25) !important; }
 .dark .border-emerald-200 { border-color: rgba(16, 185, 129, 0.25) !important; }
@@ -394,6 +395,23 @@ body, .glass-panel, .glass-card, input, textarea, select {
 /* --- Calendar day text colors --- */
 .dark .text-gray-300 { color: #4B5563 !important; }
 
+/* --- Calendar: bg-white/70 not previously overridden ---
+     Used in: week timeline day headers (future days), month grid event chips.
+     Without this, the chip/header stays white → text overridden to light → white on white. */
+.dark .bg-white\/70 { background-color: var(--dark-surface-2) !important; }
+
+/* --- Calendar: bg-white/15 (today cell event chips, month grid) ---
+     Make it less opaque so inherited white text has contrast against parent bg. */
+.dark .bg-white\/15 { background-color: rgba(255, 255, 255, 0.07) !important; }
+
+/* --- Calendar: today week-timeline event cards ---
+     bg-[#522B47] global rule maps to faint yellow in dark → card barely visible.
+     This specific class overrides that with a legible dark purple. */
+.dark .week-event-card-today {
+  background-color: rgba(82, 43, 71, 0.75) !important;
+  border: 1px solid rgba(192, 154, 181, 0.25) !important;
+}
+
 /* --- Gradient overrides (Hot Leads cards, etc.) --- */
 .dark .from-orange-50 { --tw-gradient-from: rgba(249, 115, 22, 0.1) !important; }
 .dark .to-amber-50 { --tw-gradient-to: rgba(245, 158, 11, 0.08) !important; }
@@ -419,6 +437,30 @@ body, .glass-panel, .glass-card, input, textarea, select {
 /* Orange-100 bg (Unsubscribed badge in journey) */
 .dark .bg-orange-100 { background-color: rgba(249, 115, 22, 0.18) !important; }
 .dark .text-orange-500 { color: #FB923C !important; }
+
+/* --- Communications tab: pending email card backgrounds (amber opacity variants) --- */
+.dark .bg-amber-50\/50 { background-color: rgba(245, 158, 11, 0.08) !important; }
+.dark .bg-amber-50\/40 { background-color: rgba(245, 158, 11, 0.08) !important; }
+.dark .hover\:bg-amber-50:hover { background-color: rgba(245, 158, 11, 0.12) !important; }
+.dark .hover\:bg-emerald-50:hover { background-color: rgba(16, 185, 129, 0.12) !important; }
+
+/* --- Communications tab: avatar circles (200-level → deep translucent tint) --- */
+.dark .bg-emerald-200 { background-color: rgba(16, 185, 129, 0.25) !important; }
+.dark .bg-amber-200 { background-color: rgba(245, 158, 11, 0.25) !important; }
+
+/* --- Communications tab: pending card borders (amber/emerald variants) --- */
+.dark .border-amber-200 { border-color: rgba(245, 158, 11, 0.3) !important; }
+.dark .border-amber-300 { border-color: rgba(245, 158, 11, 0.4) !important; }
+.dark .border-emerald-300 { border-color: rgba(16, 185, 129, 0.4) !important; }
+.dark .hover\:border-amber-300:hover { border-color: rgba(245, 158, 11, 0.45) !important; }
+.dark .hover\:border-emerald-300:hover { border-color: rgba(16, 185, 129, 0.45) !important; }
+
+/* --- Communications tab: active (selected) pending card saturated colours --- */
+.dark .bg-emerald-600 { background-color: rgba(5, 150, 105, 0.85) !important; }
+.dark .bg-amber-600 { background-color: rgba(217, 119, 6, 0.85) !important; }
+
+/* --- Communications tab: accent-beige/40 hover (New Thread button) --- */
+.dark .hover\:bg-accent-beige\/40:hover { background-color: rgba(251, 234, 116, 0.15) !important; }
 
 /* ===== BASE STYLES ===== */
 body {

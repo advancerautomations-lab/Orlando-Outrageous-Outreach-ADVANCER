@@ -20,6 +20,7 @@ export interface CalendarEvent {
     allDay: boolean;
     attendees?: { email: string; responseStatus: string }[];
     htmlLink?: string;
+    organizerSelf?: boolean;
 }
 
 interface GmailContextType {

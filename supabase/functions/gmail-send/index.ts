@@ -6,58 +6,29 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const COMPANY = Deno.env.get('COMPANY_NAME') || 'Superior'
+// Fetch the user's Gmail signature via the Settings API
+async function fetchGmailSignature(accessToken: string): Promise<string> {
+    try {
+        const res = await fetch(
+            'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs',
+            { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        )
+        if (!res.ok) return ''
+        const data = await res.json()
+        // Find the default/primary send-as address
+        const primary = (data.sendAs || []).find((s: any) => s.isPrimary) || data.sendAs?.[0]
+        return primary?.signature || ''
+    } catch {
+        return ''
+    }
+}
 
-// Professional HTML email template
-function createEmailHtml(body: string, subject: string): string {
-    // Convert line breaks to <br> for proper HTML rendering
+// Build the outgoing HTML: plain body + Gmail signature (if any)
+function buildEmailHtml(body: string, signature: string): string {
     const formattedBody = body.replace(/\n/g, '<br>')
-
-    return `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-</head>
-<body style="margin: 0; padding: 0; background-color: #F8F5F2; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background-color: #F8F5F2;">
-        <tr>
-            <td align="center" style="padding: 40px 20px;">
-                <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width: 600px; width: 100%;">
-                    <!-- Header -->
-                    <tr>
-                        <td style="padding: 30px 40px; background-color: #000000; border-radius: 16px 16px 0 0;">
-                            <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600; letter-spacing: -0.5px;">
-                                ${COMPANY}
-                            </h1>
-                        </td>
-                    </tr>
-
-                    <!-- Body -->
-                    <tr>
-                        <td style="padding: 40px; background-color: #ffffff; border-left: 1px solid #E5E5E5; border-right: 1px solid #E5E5E5;">
-                            <p style="margin: 0 0 24px 0; color: #111111; font-size: 16px; line-height: 1.6;">
-                                ${formattedBody}
-                            </p>
-                        </td>
-                    </tr>
-
-                    <!-- Footer -->
-                    <tr>
-                        <td style="padding: 24px 40px; background-color: #FAFAFA; border-radius: 0 0 16px 16px; border: 1px solid #E5E5E5; border-top: none;">
-                            <p style="margin: 0; color: #888888; font-size: 12px; line-height: 1.5;">
-                                Sent via <span style="color: #000000; font-weight: 500;">${COMPANY}</span> Lead Management
-                            </p>
-                        </td>
-                    </tr>
-                </table>
-            </td>
-        </tr>
-    </table>
-</body>
-</html>
-    `.trim()
+    if (!signature) return formattedBody
+    // Gmail renders signatures separated by -- convention; replicate it
+    return `${formattedBody}<br><br>--<br>${signature}`
 }
 
 // Create multipart MIME email with attachments
@@ -165,8 +136,9 @@ serve(async (req) => {
                 .eq('user_id', userId)
         }
 
-        // Prepare email with HTML template
-        const htmlBody = createEmailHtml(body, subject)
+        // Fetch Gmail signature and build plain email body
+        const signature = await fetchGmailSignature(accessToken)
+        const htmlBody = buildEmailHtml(body, signature)
 
         let emailRaw: string
         if (attachments && attachments.length > 0) {
