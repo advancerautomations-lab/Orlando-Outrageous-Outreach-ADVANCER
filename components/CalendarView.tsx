@@ -5,7 +5,7 @@ import { useGmail, CalendarEvent } from '../contexts/GmailContext';
 
 interface CalendarViewProps {
     meetings: Meeting[];
-    leads: Leagit push origin maind[];
+    leads: Lead[];
     messages: Message[];
 }
 
