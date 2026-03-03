@@ -81,8 +81,8 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
 
     // Fetch pending emails + realtime subscription + cleanup expired
     useEffect(() => {
-        pendingEmailService.getAll().then(setPendingEmails).catch(console.error);
-        pendingEmailService.getAutoDismissed().then(setAutoDismissed).catch(console.error);
+        pendingEmailService.getAll(currentUser?.id).then(setPendingEmails).catch(console.error);
+        pendingEmailService.getAutoDismissed(currentUser?.id).then(setAutoDismissed).catch(console.error);
         // Clean up auto-dismissed emails older than 14 days
         pendingEmailService.cleanupExpiredDismissed().then(count => {
             if (count > 0) console.log(`Cleaned up ${count} expired auto-dismissed emails`);
@@ -95,18 +95,18 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                 { event: '*', schema: 'public', table: 'pending_emails' },
                 () => {
                     // Refresh both lists on any change (INSERT, UPDATE, DELETE)
-                    pendingEmailService.getAll().then(setPendingEmails).catch(console.error);
-                    pendingEmailService.getAutoDismissed().then(setAutoDismissed).catch(console.error);
+                    pendingEmailService.getAll(currentUser?.id).then(setPendingEmails).catch(console.error);
+                    pendingEmailService.getAutoDismissed(currentUser?.id).then(setAutoDismissed).catch(console.error);
                 }
             )
             .subscribe();
 
         return () => { supabase.removeChannel(pendingChannel); };
-    }, []);
+    }, [currentUser?.id]);
 
     const refreshPending = () => {
-        pendingEmailService.getAll().then(setPendingEmails).catch(console.error);
-        pendingEmailService.getAutoDismissed().then(setAutoDismissed).catch(console.error);
+        pendingEmailService.getAll(currentUser?.id).then(setPendingEmails).catch(console.error);
+        pendingEmailService.getAutoDismissed(currentUser?.id).then(setAutoDismissed).catch(console.error);
     };
 
     const handleRestore = async (id: string) => {
@@ -727,8 +727,8 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                         className={`p-4 rounded-2xl cursor-pointer transition-all border border-transparent ${isSelected
                                             ? 'bg-[#522B47] text-white shadow-lg'
                                             : convoStatus === 'unread'
-                                                ? 'bg-white hover:bg-gray-50 border-gray-200 shadow-sm'
-                                                : 'hover:bg-white hover:border-gray-100'
+                                                ? 'bg-white dark:bg-white/10 hover:bg-gray-50 dark:hover:bg-white/15 border-gray-200 dark:border-gray-600 shadow-sm'
+                                                : 'hover:bg-white dark:hover:bg-white/10 hover:border-gray-100 dark:hover:border-gray-600'
                                             }`}
                                     >
                                         <div className="flex justify-between items-start mb-2">
@@ -754,11 +754,11 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                     )}
                                                 </div>
                                                 <div className="min-w-0">
-                                                    <h4 className={`text-sm truncate ${isSelected ? 'text-white' : 'text-gray-900'} ${convoStatus === 'unread' ? 'font-extrabold' : 'font-bold'}`}>
+                                                    <h4 className={`text-sm truncate ${isSelected ? 'text-white' : 'text-gray-900 dark:text-white'} ${convoStatus === 'unread' ? 'font-extrabold' : 'font-bold'}`}>
                                                         {lead.first_name} {lead.last_name}
                                                     </h4>
                                                     <div className="flex items-center gap-1.5">
-                                                        <p className={`text-xs truncate ${isSelected ? 'text-gray-300' : 'text-gray-500'}`}>
+                                                        <p className={`text-xs truncate ${isSelected ? 'text-gray-300' : 'text-gray-500 dark:text-white/70'}`}>
                                                             {lead.company}
                                                         </p>
                                                         {lead.assigned_to === currentUser?.id && (
@@ -773,15 +773,15 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                             </div>
                                             <div className="flex flex-col items-end gap-1 flex-shrink-0">
                                                 {lastMsg && (
-                                                    <span className={`text-[10px] ${isSelected ? 'text-gray-400' : convoStatus === 'unread' ? 'text-red-500 font-semibold' : 'text-gray-400'}`}>
+                                                    <span className={`text-[10px] ${isSelected ? 'text-gray-400' : convoStatus === 'unread' ? 'text-red-500 font-semibold' : 'text-gray-400 dark:text-white/60'}`}>
                                                         {new Date(lastMsg.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                                                     </span>
                                                 )}
                                             </div>
                                         </div>
-                                        <p className={`text-xs line-clamp-2 ${isSelected ? 'text-gray-300' : 'text-gray-500'}`}>
+                                        <p className={`text-xs line-clamp-2 ${isSelected ? 'text-gray-300' : 'text-gray-500 dark:text-white/70'}`}>
                                             {lastMsg ? (
-                                                <span className={convoStatus === 'unread' ? 'font-bold text-gray-800' : ''}>
+                                                <span className={convoStatus === 'unread' ? 'font-bold text-gray-800 dark:text-white' : ''}>
                                                     {lastMsg.direction === 'outbound' ? 'You: ' : ''}{lastMsg.content}
                                                 </span>
                                             ) : (

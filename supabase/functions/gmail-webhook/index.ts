@@ -84,19 +84,39 @@ async function fetchNewMessages(accessToken: string, startHistoryId: string): Pr
 
 // Extract email body from Gmail message
 function extractEmailBody(gmailMessage: any): string {
+    // Recursively search nested multipart structures for the best body part.
+    // Prefers text/plain over text/html at each level, then recurses into sub-parts.
+    function findBodyInParts(parts: any[]): string {
+        // Pass 1: text/plain at this level
+        for (const part of parts) {
+            if (part.mimeType === 'text/plain' && part.body?.data) {
+                return atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'))
+            }
+        }
+        // Pass 2: text/html at this level
+        for (const part of parts) {
+            if (part.mimeType === 'text/html' && part.body?.data) {
+                return atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'))
+            }
+        }
+        // Pass 3: recurse into nested multipart/* sub-parts
+        for (const part of parts) {
+            if (part.mimeType?.startsWith('multipart/') && part.parts?.length) {
+                const nested = findBodyInParts(part.parts)
+                if (nested) return nested
+            }
+        }
+        return ''
+    }
+
     let bodyContent = ''
 
     if (gmailMessage.payload?.body?.data) {
+        // Simple single-part message
         bodyContent = atob(gmailMessage.payload.body.data.replace(/-/g, '+').replace(/_/g, '/'))
     } else if (gmailMessage.payload?.parts) {
-        // Multipart message - find text/plain first, then text/html
-        const textPart = gmailMessage.payload.parts.find((p: any) => p.mimeType === 'text/plain')
-        const htmlPart = gmailMessage.payload.parts.find((p: any) => p.mimeType === 'text/html')
-
-        const part = textPart || htmlPart
-        if (part?.body?.data) {
-            bodyContent = atob(part.body.data.replace(/-/g, '+').replace(/_/g, '/'))
-        }
+        // Multipart message — search recursively
+        bodyContent = findBodyInParts(gmailMessage.payload.parts)
     }
 
     // Convert block-level HTML tags to newlines to preserve paragraph structure
@@ -147,6 +167,13 @@ function isObviouslyNotALead(senderEmail: string, headers: any[]): boolean {
     const senderDomain = email.split('@')[1]
     if (blockedDomains.includes(senderDomain)) return true
 
+    // Blocked specific email addresses from env var
+    const blockedAddresses = (Deno.env.get('BLOCKED_EMAIL_ADDRESSES') || '')
+        .split(',')
+        .map((a: string) => a.trim().toLowerCase())
+        .filter(Boolean)
+    if (blockedAddresses.includes(email.toLowerCase())) return true
+
     return false
 }
 
@@ -169,34 +196,29 @@ async function classifyEmailAsync(
     }
 
     try {
-        const prompt = `You are an email classifier for a B2B lead management CRM.
-Classify this inbound email from an unknown sender.
-
-Sender: ${senderName} <${senderEmail}>
+        const userPrompt = `Sender: ${senderName} <${senderEmail}>
 Subject: ${subject}
-Body (first 500 chars): ${body.substring(0, 500)}
+Body: ${body.substring(0, 500)}
 
-Classify as ONE of:
-- "lead": A real person expressing interest, asking questions, requesting info, or responding to outreach
-- "spam": Unsolicited sales pitch, phishing, or scam
-- "promotional": Newsletter, marketing email, or automated notification
-- "transactional": Receipt, shipping notification, password reset, service alert
-- "unknown": Cannot determine with confidence
-
-Respond in JSON only: {"classification": "...", "confidence": 0.0-1.0, "reason": "one sentence"}`
+Classify as ONE of: "lead", "spam", "promotional", "transactional", "unknown".
+Return ONLY this JSON with no other text: {"classification": "lead", "confidence": 0.85, "reason": "one sentence"}`
 
         console.log('[AI] Calling Gemini API...')
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
+                    systemInstruction: {
+                        parts: [{ text: 'You are an email classifier for a B2B lead management CRM. You MUST respond with ONLY a JSON object. No preamble, no explanation, no markdown. Output only the raw JSON.' }]
+                    },
+                    contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
                     generationConfig: {
                         temperature: 0.1,
-                        maxOutputTokens: 150,
+                        maxOutputTokens: 1024,
                         responseMimeType: 'application/json',
+                        thinkingConfig: { thinkingBudget: 0 },
                     },
                 }),
             }
@@ -204,7 +226,7 @@ Respond in JSON only: {"classification": "...", "confidence": 0.0-1.0, "reason":
 
         console.log(`[AI] Gemini response status: ${response.status}`)
         const data = await response.json()
-        console.log('[AI] Gemini response data:', JSON.stringify(data).substring(0, 500))
+        console.log('[AI] Gemini response data:', JSON.stringify(data).substring(0, 800))
 
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text
         if (!text) {
@@ -212,7 +234,12 @@ Respond in JSON only: {"classification": "...", "confidence": 0.0-1.0, "reason":
             return
         }
 
-        const result = JSON.parse(text)
+        console.log('[AI] Raw text from Gemini:', text.substring(0, 300))
+
+        // Extract JSON — handles edge case where model still adds preamble
+        const jsonMatch = text.match(/\{[\s\S]*?\}/)
+        if (!jsonMatch) throw new Error(`No JSON object found in response: ${JSON.stringify(text)}`)
+        const result = JSON.parse(jsonMatch[0])
         console.log(`[AI] Parsed result: ${JSON.stringify(result)}`)
 
         // Map AI result to status — asymmetric thresholds (conservative on dismiss)

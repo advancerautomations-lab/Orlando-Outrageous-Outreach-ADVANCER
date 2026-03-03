@@ -3,7 +3,7 @@ import { Lead, LeadStatus, Message, EmailCampaignRecipient, EmailToCampaign } fr
 import {
     Plus, Search, Filter, LayoutGrid, List, RefreshCw, Download, Edit3,
     MoreHorizontal, ChevronRight, Star, Send, X,
-    ArrowLeft, Mail, Phone, Loader2, Trash2, ChevronDown, Clock, Eye, FileSearch, Linkedin
+    ArrowLeft, Mail, Phone, Loader2, Trash2, ChevronDown, Clock, Eye, FileSearch, Linkedin, Camera
 } from 'lucide-react';
 import { emailCampaignService } from '../services/supabaseService';
 import toast from 'react-hot-toast';
@@ -61,6 +61,11 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
     });
     const [isCreating, setIsCreating] = useState(false);
 
+    // Avatar URL popover
+    const [showAvatarPopover, setShowAvatarPopover] = useState(false);
+    const [avatarUrlInput, setAvatarUrlInput] = useState('');
+    const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+
     // Outreach summary for converted prospects
     const [outreachSummary, setOutreachSummary] = useState<{ lastEmail?: string; respondedTo?: string; step?: number; total?: number } | null>(null);
     const [isResearching, setIsResearching] = useState(false);
@@ -76,6 +81,8 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
             setNotes(selectedLead.notes || '');
             setIsEditing(false);
             setEditForm({});
+            setShowAvatarPopover(false);
+            setAvatarUrlInput('');
         }
     }, [selectedLeadId]);
 
@@ -206,6 +213,18 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
             toast.success('Notes saved');
         } catch { toast.error('Failed to save notes'); }
         setIsSavingNotes(false);
+    };
+
+    const handleSaveAvatar = async () => {
+        if (!selectedLead || !avatarUrlInput.trim()) return;
+        setIsSavingAvatar(true);
+        try {
+            await onUpdateLead({ ...selectedLead, avatar_url: avatarUrlInput.trim() });
+            setShowAvatarPopover(false);
+            setAvatarUrlInput('');
+            toast.success('Profile picture updated');
+        } catch { toast.error('Failed to update profile picture'); }
+        setIsSavingAvatar(false);
     };
 
     const handleDeleteLead = async () => {
@@ -619,12 +638,65 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
                             {/* Profile Section */}
                             <div className="p-8 flex flex-col items-center text-center relative">
                                 <div className="relative mb-4">
-                                    {selectedLead.avatar_url ? (
-                                        <img src={selectedLead.avatar_url} alt="" className="w-24 h-24 rounded-full object-cover ring-4 ring-white shadow-lg" />
-                                    ) : (
-                                        <div className="w-24 h-24 rounded-full bg-accent-beige flex items-center justify-center font-serif font-bold text-3xl ring-4 ring-white shadow-lg">
-                                            {selectedLead.first_name[0]}{selectedLead.last_name[0]}
+                                    {/* Clickable avatar with hover overlay */}
+                                    <div
+                                        className="relative group cursor-pointer"
+                                        onClick={() => { setShowAvatarPopover(true); setAvatarUrlInput(selectedLead.avatar_url || ''); }}
+                                    >
+                                        {selectedLead.avatar_url ? (
+                                            <img src={selectedLead.avatar_url} alt="" className="w-24 h-24 rounded-full object-cover ring-4 ring-white shadow-lg" />
+                                        ) : (
+                                            <div className="w-24 h-24 rounded-full bg-accent-beige flex items-center justify-center font-serif font-bold text-3xl ring-4 ring-white shadow-lg">
+                                                {selectedLead.first_name[0]}{selectedLead.last_name[0]}
+                                            </div>
+                                        )}
+                                        {/* Hover overlay */}
+                                        <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <Camera size={20} className="text-white" />
                                         </div>
+                                    </div>
+
+                                    {/* Avatar URL popover */}
+                                    {showAvatarPopover && (
+                                        <>
+                                            <div className="fixed inset-0 z-40" onClick={() => setShowAvatarPopover(false)} />
+                                            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-3 z-50 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 w-72">
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <p className="text-sm font-semibold text-gray-800">Profile Picture URL</p>
+                                                    <button onClick={() => setShowAvatarPopover(false)} className="text-gray-400 hover:text-gray-600 cursor-pointer">
+                                                        <X size={16} />
+                                                    </button>
+                                                </div>
+                                                <p className="text-xs text-gray-400 mb-3">Paste a LinkedIn profile photo URL or any direct image link</p>
+                                                <input
+                                                    type="url"
+                                                    placeholder="https://..."
+                                                    value={avatarUrlInput}
+                                                    onChange={e => setAvatarUrlInput(e.target.value)}
+                                                    onKeyDown={e => { if (e.key === 'Enter') handleSaveAvatar(); }}
+                                                    autoFocus
+                                                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-black/10 mb-3"
+                                                />
+                                                <div className="flex gap-2">
+                                                    {selectedLead.avatar_url && (
+                                                        <button
+                                                            onClick={async () => { setIsSavingAvatar(true); try { await onUpdateLead({ ...selectedLead, avatar_url: undefined }); setShowAvatarPopover(false); setAvatarUrlInput(''); toast.success('Profile picture removed'); } catch { toast.error('Failed to remove'); } setIsSavingAvatar(false); }}
+                                                            className="px-3 py-2 text-xs font-medium text-red-500 border border-red-200 rounded-xl hover:bg-red-50 transition-colors cursor-pointer"
+                                                        >
+                                                            Remove
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={handleSaveAvatar}
+                                                        disabled={!avatarUrlInput.trim() || isSavingAvatar}
+                                                        className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-[#522B47] text-white rounded-xl text-xs font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors cursor-pointer"
+                                                    >
+                                                        {isSavingAvatar ? <Loader2 size={12} className="animate-spin" /> : null}
+                                                        {isSavingAvatar ? 'Saving...' : 'Save'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </>
                                     )}
                                 </div>
 

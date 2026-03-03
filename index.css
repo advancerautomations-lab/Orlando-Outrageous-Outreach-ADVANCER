@@ -87,8 +87,8 @@ body, .glass-panel, .glass-card, input, textarea, select {
 .dark .text-gray-800 { color: #D1D5DB !important; }
 .dark .text-gray-700 { color: #C4C9D2 !important; }
 .dark .text-gray-600 { color: #9CA3AF !important; }
-.dark .text-gray-500 { color: #7C8491 !important; }
-.dark .text-gray-400 { color: #5F6673 !important; }
+.dark .text-gray-500 { color: #B0B8C4 !important; }
+.dark .text-gray-400 { color: #8A95A3 !important; }
 .dark .text-primary { color: #E8ECF1 !important; }
 
 /* --- Input, Textarea, Select --- */
@@ -461,6 +461,11 @@ body, .glass-panel, .glass-card, input, textarea, select {
 
 /* --- Communications tab: accent-beige/40 hover (New Thread button) --- */
 .dark .hover\:bg-accent-beige\/40:hover { background-color: rgba(251, 234, 116, 0.15) !important; }
+
+/* ===== CONTACT LIST SIDEBAR DARK MODE ===== */
+.dark .bg-white\/10 { background-color: rgba(255, 255, 255, 0.06) !important; }
+.dark .hover\:bg-white\/15:hover { background-color: rgba(255, 255, 255, 0.09) !important; }
+.dark .border-gray-600 { border-color: rgba(255, 255, 255, 0.15) !important; }
 
 /* ===== BASE STYLES ===== */
 body {

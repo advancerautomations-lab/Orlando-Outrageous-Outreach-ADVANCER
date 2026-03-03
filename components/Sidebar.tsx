@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { COMPANY_NAME, COMPANY_INITIAL } from '../lib/branding';
-import { LayoutDashboard, Users, Calendar as CalendarIcon, Settings, BarChart3, LogOut, Mail, UsersRound } from 'lucide-react';
+import { LayoutDashboard, Users, Calendar as CalendarIcon, Settings, BarChart3, LogOut, Mail, UsersRound, FileSearch, Send } from 'lucide-react';
 import { useUser } from '../contexts/UserContext';
 
 interface SidebarProps {
@@ -18,6 +18,8 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, setCurrentView }) => {
       { id: 'leads', label: 'Leads Pipeline', icon: Users },
       { id: 'contact', label: 'Communication', icon: Mail },
       { id: 'calendar', label: 'Calendar', icon: CalendarIcon },
+      { id: 'deep-research', label: 'Deep Research', icon: FileSearch },
+      { id: 'campaigns', label: 'Email Campaigns', icon: Send },
     ];
 
     if (hasPermission('analytics')) {

@@ -96,6 +96,7 @@ export interface EmailCampaign {
   id: string;
   name: string;
   description?: string;
+  industry?: string;
   created_by?: string;
   status?: string;
   email_subject?: string;

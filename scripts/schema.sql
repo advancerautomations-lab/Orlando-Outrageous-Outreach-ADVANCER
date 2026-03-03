@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS public.email_campaigns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     description TEXT,
+    industry TEXT,
     created_by UUID REFERENCES public.users(id),
     status TEXT DEFAULT 'draft',
     email_subject TEXT,

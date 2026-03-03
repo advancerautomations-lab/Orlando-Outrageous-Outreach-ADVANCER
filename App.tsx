@@ -16,7 +16,9 @@ const ContactView = lazy(() => import('./components/ContactView'));
 const AnalyticsView = lazy(() => import('./components/AnalyticsView'));
 const TeamManagement = lazy(() => import('./components/TeamManagement'));
 const SettingsView = lazy(() => import('./components/SettingsView'));
+const DeepResearchView = lazy(() => import('./components/DeepResearchView'));
 const SetupWizard = lazy(() => import('./components/SetupWizard'));
+const CampaignWizardView = lazy(() => import('./components/CampaignWizardView'));
 import { leadService, meetingService, messageService, mapDbToLead, mapDbToMessage } from './services/supabaseService';
 import { Lead, Meeting, LeadStatus, Message, AppNotification } from './types';
 import { Bell, Search, User, Mail, Inbox, TrendingUp, X, Check } from 'lucide-react';
@@ -232,12 +234,12 @@ const App: React.FC = () => {
         if (err) console.error('📡 Leads channel error:', err);
       });
 
-    // Subscribe to Pending Emails - separate channel
+    // Subscribe to Pending Emails - only for this user's inbox
     const pendingChannel = supabase
       .channel('pending-realtime')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'pending_emails' },
+        { event: 'INSERT', schema: 'public', table: 'pending_emails', filter: `user_id=eq.${session.user.id}` },
         (payload) => {
           console.log('📩 NEW PENDING EMAIL:', payload);
           addNotification({
@@ -352,6 +354,10 @@ const App: React.FC = () => {
         return <ContactView leads={leads} messages={messages} onSendMessage={handleSendMessage} onMarkAsRead={handleMarkAsRead} onLeadCreated={handleLeadCreated} onMessageLinked={handleMessageLinked} />;
       case 'calendar':
         return <CalendarView meetings={meetings} leads={leads} messages={messages} />;
+      case 'deep-research':
+        return <DeepResearchView />;
+      case 'campaigns':
+        return <CampaignWizardView />;
       case 'analytics':
         return <AnalyticsView />;
       case 'team':

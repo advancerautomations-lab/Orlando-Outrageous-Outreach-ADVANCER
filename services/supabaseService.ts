@@ -389,16 +389,100 @@ export const emailCampaignService = {
       return [];
     }
     return data || [];
-  }
+  },
+
+  create: async (campaign: { name: string; status?: string }): Promise<EmailCampaign> => {
+    const { data, error } = await supabase
+      .from('email_campaigns')
+      .insert({ name: campaign.name, status: campaign.status || 'draft' })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  createEmails: async (emails: { email_campaign: string; name?: string; subject?: string; mailchimp_id: string; order: number }[]): Promise<EmailToCampaign[]> => {
+    const { data, error } = await supabase
+      .from('email_to_campaign')
+      .insert(emails)
+      .select();
+
+    if (error) throw error;
+    return (data || []).map(mapEmailToCampaign);
+  },
+
+  delete: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('email_campaigns')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  },
+
+  updateEmailOrder: async (emailToCampaignId: string, order: number): Promise<void> => {
+    const { error } = await supabase
+      .from('email_to_campaign')
+      .update({ Order: order })
+      .eq('id', emailToCampaignId);
+
+    if (error) throw error;
+  },
+
+  update: async (id: string, fields: { description?: string; industry?: string; status?: string }): Promise<EmailCampaign> => {
+    const { data, error } = await supabase
+      .from('email_campaigns')
+      .update(fields)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  createRecipient: async (recipient: {
+    campaign_id: string;
+    prospect_id: string;
+    status?: string;
+  }): Promise<EmailCampaignRecipient> => {
+    const { data, error } = await supabase
+      .from('email_campaign_recipients')
+      .insert({
+        campaign_id: recipient.campaign_id,
+        prospect_id: recipient.prospect_id,
+        status: recipient.status || 'pending',
+        current_email_step: 0,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  getRecipientByProspectAndCampaign: async (prospectId: string, campaignId: string): Promise<EmailCampaignRecipient | null> => {
+    const { data, error } = await supabase
+      .from('email_campaign_recipients')
+      .select('*')
+      .eq('prospect_id', prospectId)
+      .eq('campaign_id', campaignId)
+      .maybeSingle();
+
+    if (error) throw error;
+    return data;
+  },
 };
 
 export const pendingEmailService = {
-  getAll: async (): Promise<PendingEmail[]> => {
-    const { data, error } = await supabase
+  getAll: async (userId?: string): Promise<PendingEmail[]> => {
+    let query = supabase
       .from('pending_emails')
       .select('*')
-      .in('status', ['pending', 'likely_lead', 'needs_review'])
-      .order('received_at', { ascending: false });
+      .in('status', ['pending', 'likely_lead', 'needs_review']);
+    if (userId) query = query.eq('user_id', userId);
+    const { data, error } = await query.order('received_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching pending emails:', error);
@@ -410,13 +494,13 @@ export const pendingEmailService = {
     return (data || []).sort((a, b) => (statusOrder[a.status] ?? 3) - (statusOrder[b.status] ?? 3));
   },
 
-  getAutoDismissed: async (): Promise<PendingEmail[]> => {
-    const { data, error } = await supabase
+  getAutoDismissed: async (userId?: string): Promise<PendingEmail[]> => {
+    let query = supabase
       .from('pending_emails')
       .select('*')
-      .eq('status', 'auto_dismissed')
-      .order('received_at', { ascending: false })
-      .limit(50);
+      .eq('status', 'auto_dismissed');
+    if (userId) query = query.eq('user_id', userId);
+    const { data, error } = await query.order('received_at', { ascending: false }).limit(50);
 
     if (error) {
       console.error('Error fetching auto-dismissed emails:', error);

@@ -3,8 +3,9 @@ import { useUser } from '../contexts/UserContext';
 import ColdProspectsTab from './analytics/ColdProspectsTab';
 import OutreachStageTab from './analytics/OutreachStageTab';
 import InteractionActivityTab from './analytics/InteractionActivityTab';
+import IndustryAnalyticsTab from './analytics/IndustryAnalyticsTab';
 
-type TabId = 'cold-prospects' | 'outreach-stage' | 'interaction-activity';
+type TabId = 'cold-prospects' | 'outreach-stage' | 'interaction-activity' | 'industry-analytics';
 
 const AnalyticsView: React.FC = () => {
   const { hasPermission } = useUser();
@@ -17,6 +18,7 @@ const AnalyticsView: React.FC = () => {
     if (canViewProspects) t.push({ id: 'cold-prospects', label: 'Cold Prospects' });
     t.push({ id: 'outreach-stage', label: 'Outreach Stage' });
     t.push({ id: 'interaction-activity', label: 'Interaction Activity' });
+    t.push({ id: 'industry-analytics', label: 'Industry Analytics' });
     return t;
   }, [canViewProspects]);
 
@@ -87,6 +89,12 @@ const AnalyticsView: React.FC = () => {
         {activeTab === 'interaction-activity' && (
           <div role="tabpanel" id="panel-interaction-activity" aria-labelledby="tab-interaction-activity" className="h-full">
             <InteractionActivityTab onNavigateToCampaign={handleNavigateToCampaign} />
+          </div>
+        )}
+
+        {activeTab === 'industry-analytics' && (
+          <div role="tabpanel" id="panel-industry-analytics" aria-labelledby="tab-industry-analytics" className="h-full">
+            <IndustryAnalyticsTab />
           </div>
         )}
       </div>

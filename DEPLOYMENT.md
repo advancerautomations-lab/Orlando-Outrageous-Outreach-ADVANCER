@@ -133,6 +133,7 @@ Set environment variables in Vercel dashboard:
 - `VITE_GOOGLE_CLIENT_ID`
 - `VITE_COMPANY_NAME`
 - `VITE_DEEP_RESEARCH_WEBHOOK_URL` (if using)
+- `VITE_N8N_FETCH_CAMPAIGNS_WEBHOOK_URL` (if using campaign wizard)
 
 ### Option B: Netlify
 
@@ -160,6 +161,11 @@ npm run build
 ```sql
 UPDATE users SET role = 'admin' WHERE email = 'your@email.com';
 ```
+
+> **Note:** If you are deploying from an older version of `schema.sql` (before March 2026), the `email_campaigns` table may be missing the `industry` column. Run this migration if needed:
+> ```sql
+> ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS industry TEXT;
+> ```
 
 ### 6b. Connect Gmail
 
@@ -194,6 +200,7 @@ Check in Settings that watch status shows as **Active**.
 | `VITE_COMPANY_NAME` | Yes | Company name for branding |
 | `VITE_COMPANY_LOGO_URL` | No | Company logo URL |
 | `VITE_DEEP_RESEARCH_WEBHOOK_URL` | No | n8n deep research webhook |
+| `VITE_N8N_FETCH_CAMPAIGNS_WEBHOOK_URL` | No | n8n webhook to fetch recent Mailchimp emails for the campaign wizard |
 
 ### Supabase Secrets (Edge Functions)
 

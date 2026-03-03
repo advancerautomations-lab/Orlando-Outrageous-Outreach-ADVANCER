@@ -15,26 +15,31 @@ const ColdProspectsTab: React.FC = () => {
   const [expandedProspectId, setExpandedProspectId] = useState<string | null>(null);
   const [allRecipients, setAllRecipients] = useState<EmailCampaignRecipient[]>([]);
   const [allCampaignEmails, setAllCampaignEmails] = useState<EmailToCampaign[]>([]);
+  // campaignId → campaign name
+  const [campaignNameMap, setCampaignNameMap] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([
-      prospectService.getAll(),
-      emailCampaignService.getAllRecipients(),
-      emailCampaignService.getAll().then(async (camps) => {
-        const allEmails: EmailToCampaign[] = [];
-        for (const c of camps) {
-          const emails = await emailCampaignService.getEmails(c.id);
-          allEmails.push(...emails);
-        }
-        return allEmails;
-      })
-    ])
-      .then(([p, r, emails]) => {
-        setProspects(p);
-        setAllRecipients(r);
-        setAllCampaignEmails(emails);
-      })
+    emailCampaignService.getAll().then(async (camps) => {
+      const nameMap = new Map<string, string>();
+      for (const c of camps) nameMap.set(c.id, c.name);
+      setCampaignNameMap(nameMap);
+
+      const allEmails: EmailToCampaign[] = [];
+      for (const c of camps) {
+        const emails = await emailCampaignService.getEmails(c.id);
+        allEmails.push(...emails);
+      }
+      return allEmails;
+    }).then(async (emails) => {
+      const [p, r] = await Promise.all([
+        prospectService.getAll(),
+        emailCampaignService.getAllRecipients(),
+      ]);
+      setProspects(p);
+      setAllRecipients(r);
+      setAllCampaignEmails(emails);
+    })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -61,7 +66,29 @@ const ColdProspectsTab: React.FC = () => {
     return map;
   }, [allCampaignEmails]);
 
-  const totalCampaignEmailCount = allCampaignEmails.length;
+  // campaignId → number of emails in that campaign
+  const emailCountByCampaign = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of allCampaignEmails) {
+      const campaignId = e.email_campaign;
+      map.set(campaignId, (map.get(campaignId) || 0) + 1);
+    }
+    return map;
+  }, [allCampaignEmails]);
+
+  // prospectId → the most recent recipient record (to get campaign_id)
+  const prospectCampaignMap = useMemo(() => {
+    const map = new Map<string, EmailCampaignRecipient>();
+    for (const r of allRecipients) {
+      if (!r.prospect_id) continue;
+      const existing = map.get(r.prospect_id);
+      // Keep the record with the highest email step (most advanced)
+      if (!existing || (r.current_email_step ?? 0) > (existing.current_email_step ?? 0)) {
+        map.set(r.prospect_id, r);
+      }
+    }
+    return map;
+  }, [allRecipients]);
 
   const getProspectStatus = (p: Prospect): StatusFilter => {
     if (p.converted_to_lead_id) return 'converted';
@@ -95,10 +122,8 @@ const ColdProspectsTab: React.FC = () => {
       const stepA = (a.current_email_stage ? emailInfoMap.get(a.current_email_stage)?.order : null) ?? a.current_campaign_step ?? 0;
       const stepB = (b.current_email_stage ? emailInfoMap.get(b.current_email_stage)?.order : null) ?? b.current_campaign_step ?? 0;
 
-      // Primary: campaign step descending (furthest along first)
       if (stepB !== stepA) return stepB - stepA;
 
-      // Secondary: engagement level (clicked > opened > sent > pending)
       const engagementScore = (p: Prospect): number => {
         if (p.converted_to_lead_id) return 5;
         if (p.last_email_clicked_at) return 4;
@@ -110,7 +135,6 @@ const ColdProspectsTab: React.FC = () => {
       const engB = engagementScore(b);
       if (engB !== engA) return engB - engA;
 
-      // Tertiary: most recent activity first
       const dateA = a.last_email_clicked_at || a.last_email_opened_at || a.date_sent || '';
       const dateB = b.last_email_clicked_at || b.last_email_opened_at || b.date_sent || '';
       return dateB.localeCompare(dateA);
@@ -129,15 +153,9 @@ const ColdProspectsTab: React.FC = () => {
   }, [prospects]);
 
   const getLastActivity = (p: Prospect): { icon: React.ElementType; text: string } | null => {
-    if (p.last_email_clicked_at) {
-      return { icon: MousePointerClick, text: 'Clicked' };
-    }
-    if (p.last_email_opened_at) {
-      return { icon: Eye, text: 'Opened' };
-    }
-    if (p.date_sent) {
-      return { icon: Send, text: 'Sent' };
-    }
+    if (p.last_email_clicked_at) return { icon: MousePointerClick, text: 'Clicked' };
+    if (p.last_email_opened_at) return { icon: Eye, text: 'Opened' };
+    if (p.date_sent) return { icon: Send, text: 'Sent' };
     return null;
   };
 
@@ -166,7 +184,7 @@ const ColdProspectsTab: React.FC = () => {
   };
 
   if (loading) {
-    return <SkeletonTable rows={8} cols={6} />;
+    return <SkeletonTable rows={8} cols={7} />;
   }
 
   return (
@@ -234,6 +252,7 @@ const ColdProspectsTab: React.FC = () => {
                   </th>
                   <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Name</th>
                   <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Company</th>
+                  <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Campaign</th>
                   <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Stage</th>
                   <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Last Activity</th>
                   <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Status</th>
@@ -245,7 +264,13 @@ const ColdProspectsTab: React.FC = () => {
                   const journey = prospectJourneyMap.get(prospect.id) || [];
                   const stageEmail = prospect.current_email_stage ? emailInfoMap.get(prospect.current_email_stage) : null;
                   const step = stageEmail?.order ?? prospect.current_campaign_step ?? 0;
-                  const total = totalCampaignEmailCount || 5;
+
+                  // Look up the campaign this prospect is in, and use its email count as the total
+                  const recipientRecord = prospectCampaignMap.get(prospect.id);
+                  const campaignId = recipientRecord?.campaign_id;
+                  const campaignName = campaignId ? campaignNameMap.get(campaignId) : undefined;
+                  const total = campaignId ? (emailCountByCampaign.get(campaignId) || step) : step;
+
                   const lastActivity = getLastActivity(prospect);
                   const status = getProspectStatus(prospect);
 
@@ -274,6 +299,15 @@ const ColdProspectsTab: React.FC = () => {
                           <p className="text-[11px] text-gray-500 mt-0.5">{prospect.email}</p>
                         </td>
                         <td className="py-3 px-4 text-gray-600">{prospect.company_name || '—'}</td>
+                        <td className="py-3 px-4">
+                          {campaignName ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 whitespace-nowrap">
+                              {campaignName}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </td>
                         <td className="py-3 px-4">
                           {step > 0 ? (
                             <div className="flex items-center gap-2">
@@ -308,7 +342,7 @@ const ColdProspectsTab: React.FC = () => {
                       {/* Expanded Journey Timeline */}
                       {isExpanded && (
                         <tr>
-                          <td colSpan={6} className="p-0">
+                          <td colSpan={7} className="p-0">
                             <ProspectJourneyTimeline
                               journey={journey}
                               emailInfoMap={emailInfoMap}

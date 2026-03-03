@@ -20,6 +20,8 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
   const [allRecipients, setAllRecipients] = useState<EmailCampaignRecipient[]>([]);
   const [allStats, setAllStats] = useState<EmailCampaignStatistics[]>([]);
   const [emailInfoMap, setEmailInfoMap] = useState<Map<string, EmailToCampaign>>(new Map());
+  const [campaignNameMap, setCampaignNameMap] = useState<Map<string, string>>(new Map());
+  const [allCampaignEmails, setAllCampaignEmails] = useState<EmailToCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [visibleSeries, setVisibleSeries] = useState<Record<string, boolean>>({
     sent: true, opened: true, clicked: true, replied: true,
@@ -32,6 +34,9 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
       emailCampaignService.getAllRecipients(),
       emailCampaignService.getAllStatistics(),
       emailCampaignService.getAll().then(async (camps) => {
+        const nameMap = new Map<string, string>();
+        for (const c of camps) nameMap.set(c.id, c.name);
+        setCampaignNameMap(nameMap);
         const allEmails: EmailToCampaign[] = [];
         for (const c of camps) {
           const emails = await emailCampaignService.getEmails(c.id);
@@ -44,6 +49,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
         setProspects(p);
         setAllRecipients(r);
         setAllStats(stats);
+        setAllCampaignEmails(emails);
         const map = new Map<string, EmailToCampaign>();
         for (const e of emails) map.set(e.id, e);
         setEmailInfoMap(map);
@@ -320,7 +326,27 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
       .slice(0, 10);
   }, [prospects, emailInfoMap]);
 
-  const totalCampaignEmails = emailInfoMap.size || 5;
+  // campaignId → email count for that campaign only
+  const emailCountByCampaign = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const e of allCampaignEmails) {
+      map.set(e.email_campaign, (map.get(e.email_campaign) || 0) + 1);
+    }
+    return map;
+  }, [allCampaignEmails]);
+
+  // prospectId → their most-advanced recipient record (gives us campaign_id)
+  const prospectCampaignMap = useMemo(() => {
+    const map = new Map<string, EmailCampaignRecipient>();
+    for (const r of allRecipients) {
+      if (!r.prospect_id) continue;
+      const existing = map.get(r.prospect_id);
+      if (!existing || (r.current_email_step ?? 0) > (existing.current_email_step ?? 0)) {
+        map.set(r.prospect_id, r);
+      }
+    }
+    return map;
+  }, [allRecipients]);
 
   // ── Helpers ──
 
@@ -690,6 +716,7 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
                 <tr className="border-b border-gray-100">
                   <th scope="col" className="text-left py-2.5 px-3 font-semibold text-gray-500 text-xs">Name</th>
                   <th scope="col" className="text-left py-2.5 px-3 font-semibold text-gray-500 text-xs">Company</th>
+                  <th scope="col" className="text-left py-2.5 px-3 font-semibold text-gray-500 text-xs">Campaign</th>
                   <th scope="col" className="text-left py-2.5 px-3 font-semibold text-gray-500 text-xs">Email Stage</th>
                   <th scope="col" className="text-left py-2.5 px-3 font-semibold text-gray-500 text-xs">Last Activity</th>
                   <th scope="col" className="text-left py-2.5 px-3 font-semibold text-gray-500 text-xs">Engagement</th>
@@ -699,6 +726,10 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
                 {hotProspects.map(p => {
                   const stageEmail = p.current_email_stage ? emailInfoMap.get(p.current_email_stage) : null;
                   const step = stageEmail?.order ?? p.current_campaign_step ?? 0;
+                  const recipientRecord = prospectCampaignMap.get(p.id);
+                  const campaignId = recipientRecord?.campaign_id;
+                  const campaignName = campaignId ? campaignNameMap.get(campaignId) : undefined;
+                  const total = campaignId ? (emailCountByCampaign.get(campaignId) || step) : step;
                   const engagement = getEngagementLabel(p);
                   const lastDate = p.last_email_clicked_at || p.last_email_opened_at || p.date_sent;
 
@@ -710,17 +741,26 @@ const DashboardView: React.FC<DashboardViewProps> = ({ leads, meetings }) => {
                       </td>
                       <td className="py-3 px-3 text-gray-600">{p.company_name || '—'}</td>
                       <td className="py-3 px-3">
+                        {campaignName ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 text-purple-700 whitespace-nowrap">
+                            {campaignName}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
                         {step > 0 ? (
                           <div className="flex items-center gap-2">
                             <div className="flex gap-0.5">
-                              {Array.from({ length: totalCampaignEmails }, (_, i) => (
+                              {Array.from({ length: total }, (_, i) => (
                                 <div
                                   key={i}
                                   className={`w-3 h-1.5 rounded-full ${i < step ? 'bg-[#522B47]' : 'bg-gray-200'}`}
                                 />
                               ))}
                             </div>
-                            <span className="text-xs text-gray-500">{step}/{totalCampaignEmails}</span>
+                            <span className="text-xs text-gray-500">Email {step} of {total}</span>
                           </div>
                         ) : (
                           <span className="text-xs text-gray-400">—</span>
