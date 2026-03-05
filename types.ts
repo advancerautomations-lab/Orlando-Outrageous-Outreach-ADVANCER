@@ -46,7 +46,8 @@ export interface Meeting {
 
 export interface Message {
   id: string;
-  lead_id: string;
+  lead_id?: string;
+  prospect_id?: string;
   direction: 'inbound' | 'outbound';
   subject?: string;
   content: string;
@@ -56,6 +57,11 @@ export interface Message {
   user_id?: string;
   sender_name?: string;
   sender_email?: string;
+  cc_emails?: string[];
+  to_emails?: string[];
+  gmail_message_id?: string;
+  rfc_message_id?: string;
+  cc_thread_ids?: Record<string, string>;
 }
 
 export interface Prospect {

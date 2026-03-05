@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Lead, Message, PendingEmail } from '../types';
-import { Search, Send, Paperclip, MoreVertical, Phone, Star, Mail, ArrowLeft, Clock, Loader2, X, Plus, MessageSquare, AlertCircle, UserPlus, Link2, Trash2, ChevronDown, Inbox, RotateCcw, Bot, ShieldCheck, ShieldAlert, Zap } from 'lucide-react';
+import { Lead, Message, PendingEmail, Prospect } from '../types';
+import { Search, Send, Paperclip, MoreVertical, Phone, Star, Mail, ArrowLeft, Clock, Loader2, X, Plus, MessageSquare, AlertCircle, UserPlus, Link2, Trash2, ChevronDown, Inbox, RotateCcw, Bot, ShieldCheck, ShieldAlert, Zap, UserCheck } from 'lucide-react';
 import { useGmail } from '../contexts/GmailContext';
 import { useUser } from '../contexts/UserContext';
 import { pendingEmailService } from '../services/supabaseService';
@@ -8,11 +8,13 @@ import { supabase } from '../lib/supabaseClient';
 
 interface ContactViewProps {
     leads: Lead[];
+    prospects: Prospect[];
     messages: Message[];
     onSendMessage: (leadId: string, content: string, subject: string) => void;
     onMarkAsRead: (messageIds: string[]) => void;
     onLeadCreated: (lead: Lead, message: Message) => void;
     onMessageLinked: (message: Message) => void;
+    onProspectConverted: (leadId: string) => void;
 }
 
 interface ThreadInfo {
@@ -21,6 +23,7 @@ interface ThreadInfo {
     lastTimestamp: string;
     messageCount: number;
     hasUnread: boolean;
+    hasCc: boolean;
 }
 
 /** Normalize a subject line for grouping legacy messages without gmail_thread_id */
@@ -28,10 +31,13 @@ const normalizeSubject = (subject?: string): string =>
     (subject || '(No Subject)').replace(/^(Re|Fwd):\s*/i, '').trim();
 
 /** Get the thread key for a message */
+// Group messages by normalized subject so CC'd conversations (which have different
+// gmail_thread_id values per Gmail account) still appear as a single thread in the UI.
+// The actual gmail_thread_id on each row is used only when sending replies.
 const getThreadKey = (msg: Message): string =>
-    msg.gmail_thread_id || `subject:${normalizeSubject(msg.subject)}`;
+    `subject:${normalizeSubject(msg.subject)}`;
 
-const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessage, onMarkAsRead, onLeadCreated, onMessageLinked }) => {
+const ContactView: React.FC<ContactViewProps> = ({ leads, prospects, messages, onSendMessage, onMarkAsRead, onLeadCreated, onMessageLinked, onProspectConverted }) => {
     // Sub-tab: 'conversations' or 'pending'
     const [activeTab, setActiveTab] = useState<'conversations' | 'pending'>('conversations');
 
@@ -61,13 +67,48 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
 
     // Compose new email modal state
     const [showCompose, setShowCompose] = useState(false);
-    const [composeMode, setComposeMode] = useState<'lead' | 'custom'>('lead');
+    const [composeMode, setComposeMode] = useState<'lead' | 'prospect' | 'custom'>('lead');
     const [composeLeadSearch, setComposeLeadSearch] = useState('');
     const [composeSelectedLeadId, setComposeSelectedLeadId] = useState<string | null>(null);
     const [composeCustomEmail, setComposeCustomEmail] = useState('');
     const [composeSubject, setComposeSubject] = useState('');
     const [composeBody, setComposeBody] = useState('');
     const [composeSending, setComposeSending] = useState(false);
+    const [composeCc, setComposeCc] = useState<string[]>([]);
+    const [composeCcInput, setComposeCcInput] = useState('');
+    const [showComposeCc, setShowComposeCc] = useState(false);
+
+    // Reply CC state
+    const [replyCc, setReplyCc] = useState<string[]>([]);
+    const [replyCcInput, setReplyCcInput] = useState('');
+    const [showReplyCc, setShowReplyCc] = useState(false);
+
+    // Reply vs Reply All mode
+    const [replyMode, setReplyMode] = useState<'reply' | 'reply-all'>('reply');
+
+    // Prospect selection state — null means a lead is selected
+    const [selectedProspectId, setSelectedProspectId] = useState<string | null>(null);
+    const [isConvertingProspect, setIsConvertingProspect] = useState(false);
+
+    // Custom email contact selection (for messages with no lead_id or prospect_id)
+    const [selectedCustomEmail, setSelectedCustomEmail] = useState<string | null>(null);
+
+    // Header button state — starred contacts persisted in localStorage
+    const [starredContacts, setStarredContacts] = useState<Set<string>>(() => {
+        try {
+            const stored = localStorage.getItem('starredContacts');
+            return stored ? new Set<string>(JSON.parse(stored)) : new Set<string>();
+        } catch { return new Set<string>(); }
+    });
+    const [showMoreMenu, setShowMoreMenu] = useState(false);
+    const [showAddLeadModal, setShowAddLeadModal] = useState(false);
+    const [addLeadForm, setAddLeadForm] = useState({ first_name: '', last_name: '', company: '', phone: '' });
+    const [isAddingLead, setIsAddingLead] = useState(false);
+    const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+
+    // Compose prospect search
+    const [composeProspectSearch, setComposeProspectSearch] = useState('');
+    const [composeSelectedProspectId, setComposeSelectedProspectId] = useState<string | null>(null);
 
     // In "Mine" mode: view another team member's conversation with the selected lead (read-only)
     // null = viewing own, string = viewing that user's conversation
@@ -129,6 +170,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
     };
 
     const selectedLead = leads.find(l => l.id === selectedLeadId);
+    const selectedProspect = prospects.find(p => p.id === selectedProspectId);
     const selectedPending = pendingEmails.find(p => p.id === selectedPendingId);
 
     // Compute per-lead conversation status for sidebar indicators
@@ -169,16 +211,41 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
         return info;
     }, [leads, messages]);
 
-    // Set of lead IDs where the current user has at least one message (sent or received)
+    // Set of lead IDs where the current user has at least one message (sent, received, or CC'd)
     const myLeadIds = useMemo(() => {
         const ids = new Set<string>();
+        const userEmail = currentUser?.email?.toLowerCase();
         for (const msg of messages) {
-            if (msg.lead_id && msg.user_id === currentUser?.id) {
+            if (!msg.lead_id) continue;
+            if (msg.user_id === currentUser?.id) {
+                ids.add(msg.lead_id);
+            }
+            // Also include leads where user was CC'd or in To
+            if (userEmail && (
+                msg.cc_emails?.some(e => e.toLowerCase() === userEmail) ||
+                msg.to_emails?.some(e => e.toLowerCase() === userEmail)
+            )) {
                 ids.add(msg.lead_id);
             }
         }
         return ids;
-    }, [messages, currentUser?.id]);
+    }, [messages, currentUser?.id, currentUser?.email]);
+
+    // Thread keys where the current user appears in cc_emails or to_emails (for group chat visibility)
+    const myCcThreadKeys = useMemo(() => {
+        const keys = new Set<string>();
+        const userEmail = currentUser?.email?.toLowerCase();
+        if (!userEmail) return keys;
+        for (const msg of messages) {
+            if (
+                msg.cc_emails?.some(e => e.toLowerCase() === userEmail) ||
+                msg.to_emails?.some(e => e.toLowerCase() === userEmail)
+            ) {
+                keys.add(getThreadKey(msg));
+            }
+        }
+        return keys;
+    }, [messages, currentUser?.email]);
 
     // Filter and sort leads: unread first, assigned to me second, then by latest message timestamp
     const filteredLeads = useMemo(() => {
@@ -211,6 +278,39 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
         });
     }, [leads, searchTerm, leadConvoInfo, inboxFilter, myLeadIds, currentUser?.id]);
 
+    // Prospects that have at least one message (to show in sidebar)
+    const prospectsWithMessages = useMemo(() => {
+        const prospectIdsWithMsgs = new Set(messages.filter(m => m.prospect_id && !m.lead_id).map(m => m.prospect_id!));
+        return prospects.filter(p =>
+            prospectIdsWithMsgs.has(p.id) &&
+            !p.converted_to_lead_id && // hide if already converted to lead
+            (`${p.first_name} ${p.last_name}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (p.company_name || '').toLowerCase().includes(searchTerm.toLowerCase()))
+        );
+    }, [prospects, messages, searchTerm]);
+
+    // Custom contacts: messages with no lead_id and no prospect_id, grouped by recipient email
+    const customContactsWithMessages = useMemo(() => {
+        const orphanMsgs = messages.filter(m => !m.lead_id && !m.prospect_id);
+        const byEmail = new Map<string, Message[]>();
+        for (const msg of orphanMsgs) {
+            // For outbound: key is to_emails[0]; for inbound: key is sender_email
+            const email = msg.direction === 'outbound'
+                ? (msg.to_emails?.[0] || msg.sender_email || '')
+                : (msg.sender_email || (msg.to_emails?.[0] || ''));
+            if (!email) continue;
+            const key = email.toLowerCase();
+            if (!byEmail.has(key)) byEmail.set(key, []);
+            byEmail.get(key)!.push(msg);
+        }
+        return Array.from(byEmail.entries())
+            .map(([email, msgs]) => ({
+                email,
+                msgs: msgs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+            }))
+            .filter(({ email }) => email.toLowerCase().includes(searchTerm.toLowerCase()));
+    }, [messages, searchTerm]);
+
     // Determine if AI scanning is active — check if any pending/dismissed email has ai_classification
     const aiScanningActive = useMemo(() => {
         const allEmails = [...pendingEmails, ...autoDismissed];
@@ -239,9 +339,22 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
         return teamMembers.filter(m => userIds.has(m.id));
     }, [messages, selectedLeadId, currentUser?.id, inboxFilter, teamMembers]);
 
-    // Compute threads for the selected lead (filtered by inbox mode)
+    // Compute threads for the selected lead, prospect, or custom contact (filtered by inbox mode)
     const threads = useMemo((): ThreadInfo[] => {
-        let leadMessages = messages.filter(m => m.lead_id === selectedLeadId);
+        let leadMessages: Message[];
+        if (selectedCustomEmail) {
+            leadMessages = messages.filter(m => {
+                if (m.lead_id || m.prospect_id) return false;
+                const email = m.direction === 'outbound'
+                    ? (m.to_emails?.[0] || m.sender_email || '')
+                    : (m.sender_email || (m.to_emails?.[0] || ''));
+                return email.toLowerCase() === selectedCustomEmail;
+            });
+        } else if (selectedProspectId) {
+            leadMessages = messages.filter(m => m.prospect_id === selectedProspectId);
+        } else {
+            leadMessages = messages.filter(m => m.lead_id === selectedLeadId);
+        }
 
         const threadMap = new Map<string, Message[]>();
         for (const msg of leadMessages) {
@@ -255,7 +368,8 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
         const threadInfos: ThreadInfo[] = [];
         for (const [key, msgs] of threadMap) {
             // In "mine" mode, filter threads by the effective user (own or viewing another)
-            if (inboxFilter === 'mine' && !msgs.some(m => m.user_id === effectiveUserId)) {
+            // Also include threads where the user was CC'd (group chat threads)
+            if (inboxFilter === 'mine' && !msgs.some(m => m.user_id === effectiveUserId) && !myCcThreadKeys.has(key)) {
                 continue;
             }
             const sorted = msgs.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -266,13 +380,14 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                 lastTimestamp: sorted[sorted.length - 1].timestamp,
                 messageCount: msgs.length,
                 hasUnread: msgs.some(m => !m.is_read && m.direction === 'inbound'),
+                hasCc: msgs.some(m => m.cc_emails && m.cc_emails.length > 0),
             });
         }
 
         return threadInfos.sort((a, b) =>
             new Date(b.lastTimestamp).getTime() - new Date(a.lastTimestamp).getTime()
         );
-    }, [messages, selectedLeadId, inboxFilter, effectiveUserId]);
+    }, [messages, selectedLeadId, selectedProspectId, selectedCustomEmail, inboxFilter, effectiveUserId, myCcThreadKeys]);
 
     // Auto-select the most recent thread when threads change or lead changes
     useEffect(() => {
@@ -287,35 +402,89 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
     // When selecting a lead, mark unread inbound messages as read
     const handleSelectLead = (leadId: string) => {
         setSelectedLeadId(leadId);
+        setSelectedProspectId(null);
+        setSelectedCustomEmail(null);
         const info = leadConvoInfo.get(leadId);
         if (info && info.unreadIds.length > 0) {
             onMarkAsRead(info.unreadIds);
         }
     };
 
-    // Reset thread selection and viewing user when lead changes
+    // When selecting a prospect conversation
+    const handleSelectProspect = (prospectId: string) => {
+        setSelectedProspectId(prospectId);
+        setSelectedLeadId(null);
+        setSelectedCustomEmail(null);
+        setActiveThreadId(null);
+    };
+
+    // When selecting a custom email conversation
+    const handleSelectCustomEmail = (email: string) => {
+        setSelectedCustomEmail(email);
+        setSelectedLeadId(null);
+        setSelectedProspectId(null);
+        setActiveThreadId(null);
+    };
+
+    // Reset thread selection and viewing user when lead/prospect/custom changes
     useEffect(() => {
         setActiveThreadId(null);
         setSubjectLine('');
         setNewMessage('');
         setViewingUserId(null);
-    }, [selectedLeadId]);
+        setReplyMode('reply');
+    }, [selectedLeadId, selectedProspectId, selectedCustomEmail]);
 
     // Get messages for the active thread (with inbox filter)
     const currentMessages = useMemo(() => {
         if (!activeThreadId || activeThreadId === '__new__') return [];
         return messages
             .filter(m => {
-                if (m.lead_id !== selectedLeadId) return false;
+                // Match to the selected contact type
+                if (selectedCustomEmail) {
+                    if (m.lead_id || m.prospect_id) return false;
+                    const email = m.direction === 'outbound'
+                        ? (m.to_emails?.[0] || m.sender_email || '')
+                        : (m.sender_email || (m.to_emails?.[0] || ''));
+                    if (email.toLowerCase() !== selectedCustomEmail) return false;
+                } else if (selectedProspectId) {
+                    if (m.prospect_id !== selectedProspectId) return false;
+                } else {
+                    if (m.lead_id !== selectedLeadId) return false;
+                }
                 if (getThreadKey(m) !== activeThreadId) return false;
                 // In "mine" mode, filter by the effective user (own or viewing another)
+                // But show ALL messages in CC'd threads (group chat behavior)
                 if (inboxFilter === 'mine' && m.user_id && m.user_id !== effectiveUserId) {
-                    return false;
+                    if (!myCcThreadKeys.has(activeThreadId!)) {
+                        return false;
+                    }
                 }
                 return true;
             })
             .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-    }, [messages, selectedLeadId, activeThreadId, inboxFilter, effectiveUserId]);
+    }, [messages, selectedLeadId, selectedProspectId, selectedCustomEmail, activeThreadId, inboxFilter, effectiveUserId, myCcThreadKeys]);
+
+    // Collect all CC/To participants from the current thread for "Reply All"
+    const replyAllCcList = useMemo(() => {
+        if (!currentMessages.length) return [];
+        const userEmail = currentUser?.email?.toLowerCase();
+        const recipientEmail = selectedLead?.email?.toLowerCase()
+            || selectedProspect?.email?.toLowerCase()
+            || selectedCustomEmail?.toLowerCase();
+
+        const allEmails = new Set<string>();
+        for (const msg of currentMessages) {
+            msg.cc_emails?.forEach(e => allEmails.add(e.toLowerCase()));
+            msg.to_emails?.forEach(e => allEmails.add(e.toLowerCase()));
+            if (msg.sender_email) allEmails.add(msg.sender_email.toLowerCase());
+        }
+        // Remove current user and the primary recipient
+        if (userEmail) allEmails.delete(userEmail);
+        if (recipientEmail) allEmails.delete(recipientEmail);
+
+        return Array.from(allEmails);
+    }, [currentMessages, currentUser?.email, selectedLead, selectedProspect, selectedCustomEmail]);
 
     // Scroll to bottom of messages
     useEffect(() => {
@@ -324,7 +493,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
 
     const activeThread = threads.find(t => t.threadId === activeThreadId);
     const isNewThread = activeThreadId === '__new__';
-    const isReply = activeThreadId && !isNewThread && !activeThreadId.startsWith('subject:');
+    const isReply = activeThreadId && !isNewThread;
 
     // Select a pending email
     const handleSelectPending = (pendingId: string) => {
@@ -405,8 +574,77 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
         setIsProcessing(false);
     };
 
+    // --- Header button handlers ---
+
+    const copyToClipboard = (text: string, label: string) => {
+        navigator.clipboard.writeText(text).then(() => {
+            setCopyFeedback(label);
+            setTimeout(() => setCopyFeedback(null), 2000);
+        });
+    };
+
+    const handlePhoneClick = () => {
+        const contact = selectedLead || selectedProspect;
+        const phone = selectedLead?.phone || (selectedProspect as any)?.phone;
+        if (phone) {
+            window.open(`tel:${phone}`, '_self');
+        } else {
+            const email = contact?.email || selectedCustomEmail || '';
+            copyToClipboard(email, 'Email copied!');
+        }
+    };
+
+    const handleStarClick = () => {
+        const key = selectedLeadId || selectedProspectId || selectedCustomEmail || '';
+        setStarredContacts(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key); else next.add(key);
+            try { localStorage.setItem('starredContacts', JSON.stringify(Array.from(next))); } catch {}
+            return next;
+        });
+    };
+
+    const handleAddLeadFromCustom = async () => {
+        const email = selectedCustomEmail;
+        if (!email || !addLeadForm.first_name.trim()) return;
+        setIsAddingLead(true);
+        try {
+            const { data: newLead, error } = await supabase.from('leads').insert({
+                first_name: addLeadForm.first_name.trim(),
+                last_name: addLeadForm.last_name.trim(),
+                email,
+                phone: addLeadForm.phone.trim() || null,
+                company: addLeadForm.company.trim() || '',
+                estimated_value: 0,
+                lead_status: 'new',
+                lead_source: 'Communication',
+            }).select().single();
+            if (!error && newLead) {
+                // Link all messages for this custom email to the new lead
+                const customMsgIds = messages
+                    .filter(m => !m.lead_id && !m.prospect_id && (
+                        (m.direction === 'outbound' && (m.to_emails?.[0] || '').toLowerCase() === email) ||
+                        (m.direction === 'inbound' && (m.sender_email || '').toLowerCase() === email)
+                    ))
+                    .map(m => m.id);
+                if (customMsgIds.length > 0) {
+                    await supabase.from('messages').update({ lead_id: newLead.id }).in('id', customMsgIds);
+                }
+                setShowAddLeadModal(false);
+                setAddLeadForm({ first_name: '', last_name: '', company: '', phone: '' });
+                setSelectedCustomEmail(null);
+                setSelectedLeadId(newLead.id);
+                onLeadCreated(newLead as any, messages.find(m => customMsgIds.includes(m.id)) as any);
+            }
+        } catch (err) {
+            console.error('Error adding lead:', err);
+        }
+        setIsAddingLead(false);
+    };
+
     const handleSend = async () => {
-        if (!selectedLeadId || !newMessage.trim()) return;
+        if (!newMessage.trim()) return;
+        if (!selectedLeadId && !selectedProspectId && !selectedCustomEmail) return;
 
         // Determine subject
         let finalSubject = subjectLine;
@@ -415,18 +653,56 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
         }
         if (!finalSubject) finalSubject = 'New Message';
 
-        // Determine threadId to pass for Gmail threading
-        const threadIdToSend = isReply ? activeThreadId : undefined;
+        // Determine which gmail_thread_id to pass to the Gmail API for this reply.
+        // User A: their own outbound message has the correct gmail_thread_id.
+        // User B (CC'd): their thread ID is stored in cc_thread_ids map on the outbound message,
+        // keyed by their email address — populated by the webhook when their inbox copy arrived.
+        const userEmail = currentUser?.email?.toLowerCase();
+        const myOutboundInThread = currentMessages.find(
+            m => m.direction === 'outbound' && m.user_id === currentUser?.id
+        );
+        const ccThreadId = userEmail
+            ? currentMessages.map(m => m.cc_thread_ids?.[userEmail]).find(Boolean)
+            : undefined;
+        // Also check any message in the thread for a gmail_thread_id (e.g. inbound replies have one too)
+        const anyThreadId = currentMessages.find(m => m.gmail_thread_id)?.gmail_thread_id;
+        const threadIdToSend = isReply
+            ? (myOutboundInThread?.gmail_thread_id || ccThreadId || anyThreadId || undefined)
+            : undefined;
+
+        // For In-Reply-To MIME header: use the RFC 2822 Message-ID from the most recent inbound message.
+        // Find the RFC 2822 Message-ID of the most recent message for In-Reply-To.
+        // Outbound: stored in rfc_message_id (fetched by gmail-send after sending).
+        // Inbound: stored in gmail_message_id (the rfcMessageId captured by the webhook).
+        // This causes the lead's email client to thread the reply in the same conversation.
+        const reversedMessages = [...currentMessages].reverse();
+        const inReplyToMsgId = isReply
+            ? (reversedMessages.find(m => m.direction === 'outbound' && m.rfc_message_id)?.rfc_message_id
+                || reversedMessages.find(m => m.direction === 'inbound' && m.gmail_message_id)?.gmail_message_id)
+            : undefined;
+
+        // Build effective CC list.
+        // CC threads always force Reply All — the full CC list is always included.
+        const isThreadWithCc = activeThread?.hasCc && replyAllCcList.length > 0;
+        const effectiveCc = isThreadWithCc || (replyMode === 'reply-all' && replyAllCcList.length > 0)
+            ? [...new Set([...replyCc, ...replyAllCcList])]
+            : replyCc.length > 0 ? replyCc : undefined;
 
         if (isAuthenticated) {
             setIsSending(true);
+            const toEmail = selectedCustomEmail
+                ? selectedCustomEmail
+                : selectedLead ? selectedLead.email : selectedProspect!.email;
             const success = await sendEmail(
-                selectedLead!.email,
+                toEmail,
                 finalSubject,
                 newMessage,
-                selectedLeadId,
+                selectedLeadId || undefined,
                 attachments,
-                threadIdToSend || undefined
+                threadIdToSend || undefined,
+                effectiveCc && effectiveCc.length > 0 ? effectiveCc : undefined,
+                selectedProspectId || undefined,
+                inReplyToMsgId || undefined
             );
             setIsSending(false);
 
@@ -434,8 +710,11 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                 setNewMessage('');
                 setSubjectLine('');
                 setAttachments([]);
+                setReplyCc([]);
+                setReplyCcInput('');
+                setShowReplyCc(false);
             }
-        } else {
+        } else if (selectedLeadId) {
             onSendMessage(selectedLeadId, newMessage, finalSubject);
             setNewMessage('');
             setSubjectLine('');
@@ -444,15 +723,19 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
 
     // Compose email handler
     const handleComposeSend = async () => {
+        const selectedProspect = prospects.find(p => p.id === composeSelectedProspectId);
         const toEmail = composeMode === 'lead'
             ? leads.find(l => l.id === composeSelectedLeadId)?.email
+            : composeMode === 'prospect'
+            ? selectedProspect?.email
             : composeCustomEmail.trim();
         if (!toEmail || !composeSubject.trim() || !composeBody.trim()) return;
 
         setComposeSending(true);
         if (isAuthenticated) {
             const leadId = composeMode === 'lead' ? composeSelectedLeadId || undefined : undefined;
-            const success = await sendEmail(toEmail, composeSubject, composeBody, leadId);
+            const prospectId = composeMode === 'prospect' ? composeSelectedProspectId || undefined : undefined;
+            const success = await sendEmail(toEmail, composeSubject, composeBody, leadId, undefined, undefined, composeCc.length > 0 ? composeCc : undefined, prospectId);
             if (success) {
                 setShowCompose(false);
                 setComposeSubject('');
@@ -460,6 +743,21 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                 setComposeLeadSearch('');
                 setComposeSelectedLeadId(null);
                 setComposeCustomEmail('');
+                setComposeProspectSearch('');
+                setComposeSelectedProspectId(null);
+                setComposeCc([]);
+                setComposeCcInput('');
+                setShowComposeCc(false);
+                // Auto-select the contact in sidebar so conversation is visible
+                if (prospectId) {
+                    setSelectedProspectId(prospectId);
+                    setSelectedLeadId(null);
+                    setSelectedCustomEmail(null);
+                } else if (composeMode === 'custom' && toEmail) {
+                    setSelectedCustomEmail(toEmail.toLowerCase());
+                    setSelectedLeadId(null);
+                    setSelectedProspectId(null);
+                }
             }
         } else {
             if (composeMode === 'lead' && composeSelectedLeadId) {
@@ -548,6 +846,73 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                 </div>{/* end AI status + sub-tabs wrapper */}
             </div>
 
+            {/* ===== ADD CUSTOM CONTACT AS LEAD MODAL ===== */}
+            {showAddLeadModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setShowAddLeadModal(false)}>
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                            <h3 className="font-serif font-bold text-lg">Add as Lead</h3>
+                            <button onClick={() => setShowAddLeadModal(false)} className="p-1.5 rounded-full hover:bg-gray-100 text-gray-400 cursor-pointer"><X size={18} /></button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div className="px-4 py-3 bg-gray-50 rounded-xl text-sm text-gray-600">
+                                <span className="font-medium">Email:</span> {selectedCustomEmail}
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1 block">First Name *</label>
+                                    <input
+                                        type="text"
+                                        placeholder="First name"
+                                        value={addLeadForm.first_name}
+                                        onChange={e => setAddLeadForm(f => ({ ...f, first_name: e.target.value }))}
+                                        className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#522B47]/20"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs font-medium text-gray-500 mb-1 block">Last Name</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Last name"
+                                        value={addLeadForm.last_name}
+                                        onChange={e => setAddLeadForm(f => ({ ...f, last_name: e.target.value }))}
+                                        className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#522B47]/20"
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1 block">Company</label>
+                                <input
+                                    type="text"
+                                    placeholder="Company name"
+                                    value={addLeadForm.company}
+                                    onChange={e => setAddLeadForm(f => ({ ...f, company: e.target.value }))}
+                                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#522B47]/20"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-medium text-gray-500 mb-1 block">Phone</label>
+                                <input
+                                    type="tel"
+                                    placeholder="Phone number"
+                                    value={addLeadForm.phone}
+                                    onChange={e => setAddLeadForm(f => ({ ...f, phone: e.target.value }))}
+                                    className="w-full px-3 py-2.5 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-[#522B47]/20"
+                                />
+                            </div>
+                            <button
+                                onClick={handleAddLeadFromCustom}
+                                disabled={isAddingLead || !addLeadForm.first_name.trim()}
+                                className="w-full py-3 bg-[#522B47] hover:bg-[#3D1F35] text-white rounded-xl text-sm font-medium transition-colors cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {isAddingLead ? <Loader2 size={15} className="animate-spin" /> : <UserPlus size={15} />}
+                                Create Lead
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ===== COMPOSE NEW EMAIL MODAL ===== */}
             {showCompose && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setShowCompose(false)}>
@@ -562,20 +927,22 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                 <span className="text-xs font-medium text-gray-500 w-8">To:</span>
                                 <div className="flex items-center bg-gray-100 rounded-lg p-0.5 flex-1">
                                     <button
-                                        onClick={() => { setComposeMode('lead'); setComposeCustomEmail(''); }}
-                                        className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                                            composeMode === 'lead' ? 'bg-white text-black shadow-sm' : 'text-gray-500'
-                                        }`}
+                                        onClick={() => { setComposeMode('lead'); setComposeCustomEmail(''); setComposeSelectedProspectId(null); setComposeProspectSearch(''); }}
+                                        className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${composeMode === 'lead' ? 'bg-white text-black shadow-sm' : 'text-gray-500'}`}
                                     >
-                                        Existing Lead
+                                        Lead
                                     </button>
                                     <button
-                                        onClick={() => { setComposeMode('custom'); setComposeSelectedLeadId(null); setComposeLeadSearch(''); }}
-                                        className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                                            composeMode === 'custom' ? 'bg-white text-black shadow-sm' : 'text-gray-500'
-                                        }`}
+                                        onClick={() => { setComposeMode('prospect'); setComposeCustomEmail(''); setComposeSelectedLeadId(null); setComposeLeadSearch(''); }}
+                                        className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${composeMode === 'prospect' ? 'bg-white text-black shadow-sm' : 'text-gray-500'}`}
                                     >
-                                        Custom Email
+                                        Prospect
+                                    </button>
+                                    <button
+                                        onClick={() => { setComposeMode('custom'); setComposeSelectedLeadId(null); setComposeLeadSearch(''); setComposeSelectedProspectId(null); setComposeProspectSearch(''); }}
+                                        className={`flex-1 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${composeMode === 'custom' ? 'bg-white text-black shadow-sm' : 'text-gray-500'}`}
+                                    >
+                                        Custom
                                     </button>
                                 </div>
                             </div>
@@ -616,6 +983,38 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                         </>
                                     )}
                                 </div>
+                            ) : composeMode === 'prospect' ? (
+                                <div className="relative">
+                                    {composeSelectedProspectId ? (
+                                        <div className="flex items-center gap-2 px-4 py-3 bg-amber-50 rounded-xl">
+                                            <span className="text-sm font-medium text-gray-900">
+                                                {(() => { const p = prospects.find(p => p.id === composeSelectedProspectId); return p ? `${p.first_name} ${p.last_name} (${p.email})` : ''; })()}
+                                            </span>
+                                            <button onClick={() => { setComposeSelectedProspectId(null); setComposeProspectSearch(''); }} className="ml-auto text-gray-400 hover:text-gray-600 cursor-pointer"><X size={14} /></button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <input
+                                                type="text"
+                                                placeholder="Search prospects by name or email..."
+                                                value={composeProspectSearch}
+                                                onChange={e => setComposeProspectSearch(e.target.value)}
+                                                className="w-full px-4 py-3 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-black/10"
+                                            />
+                                            {composeProspectSearch.trim() && (
+                                                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-10 max-h-40 overflow-y-auto">
+                                                    {prospects.filter(p => `${p.first_name} ${p.last_name}`.toLowerCase().includes(composeProspectSearch.toLowerCase()) || p.email.toLowerCase().includes(composeProspectSearch.toLowerCase())).map(p => (
+                                                        <button key={p.id} onClick={() => { setComposeSelectedProspectId(p.id); setComposeProspectSearch(''); }} className="w-full text-left px-4 py-2.5 hover:bg-amber-50 text-sm cursor-pointer">
+                                                            <span className="font-medium">{p.first_name} {p.last_name}</span>
+                                                            <span className="text-gray-400 ml-2">{p.email}</span>
+                                                            {p.company_name && <span className="text-gray-300 ml-2">· {p.company_name}</span>}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
                             ) : (
                                 <input
                                     type="email"
@@ -625,6 +1024,83 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                     className="w-full px-4 py-3 bg-gray-50 rounded-xl text-sm outline-none focus:ring-2 focus:ring-black/10"
                                 />
                             )}
+
+                            {/* CC toggle + input */}
+                            <div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowComposeCc(!showComposeCc)}
+                                    className="text-xs font-medium text-gray-400 hover:text-gray-600 transition-colors cursor-pointer mb-1"
+                                >
+                                    {showComposeCc ? '− CC' : '+ CC'}
+                                </button>
+                                {showComposeCc && (
+                                    <div className="relative">
+                                        <div className="flex flex-wrap items-center gap-1.5 px-4 py-2.5 bg-gray-50 rounded-xl">
+                                            {composeCc.map((email, idx) => (
+                                                <span key={idx} className="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-xs font-medium text-gray-700">
+                                                    {email}
+                                                    <button onClick={() => setComposeCc(composeCc.filter((_, i) => i !== idx))} className="text-gray-400 hover:text-red-500 cursor-pointer"><X size={12} /></button>
+                                                </span>
+                                            ))}
+                                            <input
+                                                type="text"
+                                                placeholder="Add CC — type name or email..."
+                                                value={composeCcInput}
+                                                onChange={e => setComposeCcInput(e.target.value)}
+                                                onKeyDown={e => {
+                                                    if ((e.key === 'Enter' || e.key === ',') && composeCcInput.trim()) {
+                                                        e.preventDefault();
+                                                        const email = composeCcInput.trim().replace(/,$/, '');
+                                                        if (email && !composeCc.includes(email)) setComposeCc([...composeCc, email]);
+                                                        setComposeCcInput('');
+                                                    }
+                                                }}
+                                                onBlur={() => {
+                                                    setTimeout(() => {
+                                                        const email = composeCcInput.trim();
+                                                        if (email && !composeCc.includes(email)) setComposeCc([...composeCc, email]);
+                                                        setComposeCcInput('');
+                                                    }, 150);
+                                                }}
+                                                className="flex-1 min-w-[120px] bg-transparent text-sm outline-none placeholder-gray-400"
+                                            />
+                                        </div>
+                                        {/* Team member suggestions */}
+                                        {composeCcInput.trim() && (() => {
+                                            const q = composeCcInput.toLowerCase();
+                                            const suggestions = teamMembers.filter(m =>
+                                                m.email && !composeCc.includes(m.email) &&
+                                                (m.full_name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q))
+                                            );
+                                            if (!suggestions.length) return null;
+                                            return (
+                                                <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
+                                                    {suggestions.map(m => (
+                                                        <button
+                                                            key={m.id}
+                                                            onMouseDown={e => {
+                                                                e.preventDefault();
+                                                                if (!composeCc.includes(m.email)) setComposeCc([...composeCc, m.email]);
+                                                                setComposeCcInput('');
+                                                            }}
+                                                            className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center gap-3 cursor-pointer"
+                                                        >
+                                                            <div className="w-7 h-7 rounded-full bg-[#522B47] text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                                                {m.full_name[0]}
+                                                            </div>
+                                                            <div>
+                                                                <div className="text-sm font-medium text-gray-900">{m.full_name}</div>
+                                                                <div className="text-xs text-gray-400">{m.email}</div>
+                                                            </div>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                )}
+                            </div>
 
                             {/* Subject */}
                             <input
@@ -654,7 +1130,7 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                 </button>
                                 <button
                                     onClick={handleComposeSend}
-                                    disabled={composeSending || !composeSubject.trim() || !composeBody.trim() || (composeMode === 'lead' ? !composeSelectedLeadId : !composeCustomEmail.trim())}
+                                    disabled={composeSending || !composeSubject.trim() || !composeBody.trim() || (composeMode === 'lead' ? !composeSelectedLeadId : composeMode === 'prospect' ? !composeSelectedProspectId : !composeCustomEmail.trim())}
                                     className="flex items-center gap-2 px-5 py-2.5 bg-[#522B47] text-white rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer"
                                 >
                                     {composeSending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -761,9 +1237,14 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                         <p className={`text-xs truncate ${isSelected ? 'text-gray-300' : 'text-gray-500 dark:text-white/70'}`}>
                                                             {lead.company}
                                                         </p>
+                                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                                                            isSelected ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-600'
+                                                        }`}>
+                                                            Lead
+                                                        </span>
                                                         {lead.assigned_to === currentUser?.id && (
                                                             <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
-                                                                isSelected ? 'bg-white/20 text-white' : 'bg-blue-100 text-blue-600'
+                                                                isSelected ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-600'
                                                             }`}>
                                                                 Assigned
                                                             </span>
@@ -791,36 +1272,276 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                     </div>
                                 );
                             })}
+
+                            {/* Prospect conversations */}
+                            {prospectsWithMessages.map(prospect => {
+                                const prospectMsgs = messages.filter(m => m.prospect_id === prospect.id && !m.lead_id).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                                const lastMsg = prospectMsgs[0] || null;
+                                const hasUnread = prospectMsgs.some(m => !m.is_read && m.direction === 'inbound');
+                                const isSelected = selectedProspectId === prospect.id;
+                                return (
+                                    <div
+                                        key={prospect.id}
+                                        onClick={() => handleSelectProspect(prospect.id)}
+                                        className={`p-4 rounded-2xl cursor-pointer transition-all border border-transparent ${isSelected
+                                            ? 'bg-[#522B47] text-white shadow-lg'
+                                            : hasUnread
+                                                ? 'bg-white border-gray-200 shadow-sm'
+                                                : 'hover:bg-white hover:border-gray-100'
+                                        }`}
+                                    >
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex items-center gap-3">
+                                                <div className="relative flex-shrink-0">
+                                                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isSelected ? 'bg-white/20' : 'bg-amber-100'}`}>
+                                                        <span className={isSelected ? 'text-white' : 'text-amber-700'}>{prospect.first_name[0]}{prospect.last_name[0]}</span>
+                                                    </div>
+                                                    {hasUnread && <span className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 rounded-full border-2 border-white" />}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <h4 className={`text-sm font-bold truncate ${isSelected ? 'text-white' : 'text-gray-900'}`}>
+                                                        {prospect.first_name} {prospect.last_name}
+                                                    </h4>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <p className={`text-xs truncate ${isSelected ? 'text-gray-300' : 'text-gray-500'}`}>{prospect.company_name}</p>
+                                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${isSelected ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700'}`}>Prospect</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {lastMsg && (
+                                                <span className={`text-[10px] flex-shrink-0 ${isSelected ? 'text-gray-400' : 'text-gray-400'}`}>
+                                                    {new Date(lastMsg.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className={`text-xs line-clamp-2 ${isSelected ? 'text-gray-300' : 'text-gray-500'}`}>
+                                            {lastMsg ? `${lastMsg.direction === 'outbound' ? 'You: ' : ''}${lastMsg.content}` : <span className="italic opacity-70">No messages yet</span>}
+                                        </p>
+                                    </div>
+                                );
+                            })}
+
+                            {/* Custom email contacts (no lead_id, no prospect_id) */}
+                            {customContactsWithMessages.map(({ email, msgs }) => {
+                                const lastMsg = msgs[0] || null;
+                                const isSelected = selectedCustomEmail === email;
+                                return (
+                                    <div
+                                        key={email}
+                                        onClick={() => handleSelectCustomEmail(email)}
+                                        className={`p-4 rounded-2xl cursor-pointer transition-all border border-transparent ${isSelected
+                                            ? 'bg-[#522B47] text-white shadow-lg'
+                                            : 'hover:bg-white hover:border-gray-100'
+                                        }`}
+                                    >
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${isSelected ? 'bg-white/20' : 'bg-gray-100'}`}>
+                                                    <span className={isSelected ? 'text-white' : 'text-gray-500'}>{email[0].toUpperCase()}</span>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <h4 className={`text-sm font-bold truncate ${isSelected ? 'text-white' : 'text-gray-900'}`}>{email}</h4>
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>Custom</span>
+                                                </div>
+                                            </div>
+                                            {lastMsg && (
+                                                <span className={`text-[10px] flex-shrink-0 ${isSelected ? 'text-gray-400' : 'text-gray-400'}`}>
+                                                    {new Date(lastMsg.timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <p className={`text-xs line-clamp-2 ${isSelected ? 'text-gray-300' : 'text-gray-500'}`}>
+                                            {lastMsg ? `${lastMsg.direction === 'outbound' ? 'You: ' : ''}${lastMsg.content}` : <span className="italic opacity-70">No messages yet</span>}
+                                        </p>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
 
                     {/* RIGHT: Conversation Thread */}
                     <div className="col-span-12 lg:col-span-8 xl:col-span-9 flex flex-col glass-card rounded-3xl overflow-hidden h-full">
-                        {selectedLead ? (
+                        {(selectedLead || selectedProspect || selectedCustomEmail) ? (
                             <>
                                 {/* Header */}
                                 <div className="p-6 border-b border-gray-100 bg-white/40 backdrop-blur-md flex justify-between items-center z-10">
                                     <div className="flex items-center gap-4">
-                                        {selectedLead.avatar_url ? (
+                                        {selectedCustomEmail ? (
+                                            <div className="w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg bg-gray-100 text-gray-500">
+                                                {selectedCustomEmail[0].toUpperCase()}
+                                            </div>
+                                        ) : selectedLead?.avatar_url ? (
                                             <img src={selectedLead.avatar_url} className="w-12 h-12 rounded-full object-cover shadow-sm" />
                                         ) : (
-                                            <div className="w-12 h-12 rounded-full bg-accent-beige flex items-center justify-center font-bold text-lg">
-                                                {selectedLead.first_name[0]}{selectedLead.last_name[0]}
+                                            <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${selectedProspect ? 'bg-amber-100 text-amber-700' : 'bg-accent-beige'}`}>
+                                                {(selectedLead || selectedProspect)!.first_name[0]}{(selectedLead || selectedProspect)!.last_name[0]}
                                             </div>
                                         )}
                                         <div>
-                                            <h3 className="font-serif font-bold text-xl text-black">{selectedLead.first_name} {selectedLead.last_name}</h3>
+                                            <div className="flex items-center gap-2">
+                                                {selectedCustomEmail ? (
+                                                    <h3 className="font-serif font-bold text-xl text-black">{selectedCustomEmail}</h3>
+                                                ) : (
+                                                    <h3 className="font-serif font-bold text-xl text-black">{(selectedLead || selectedProspect)!.first_name} {(selectedLead || selectedProspect)!.last_name}</h3>
+                                                )}
+                                                {selectedProspect && <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full">Prospect</span>}
+                                                {selectedLead && <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">Lead</span>}
+                                                {selectedCustomEmail && <span className="text-[10px] font-bold px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">Custom</span>}
+                                            </div>
                                             <div className="flex items-center gap-3 text-xs text-gray-500">
-                                                <span className="flex items-center gap-1"><Mail size={12} /> {selectedLead.email}</span>
-                                                <span className="w-1 h-1 bg-gray-300 rounded-full"></span>
-                                                <span className="flex items-center gap-1"><Phone size={12} /> {selectedLead.phone}</span>
+                                                {selectedCustomEmail ? (
+                                                    <span className="flex items-center gap-1"><Mail size={12} /> {selectedCustomEmail}</span>
+                                                ) : (
+                                                    <>
+                                                        <span className="flex items-center gap-1"><Mail size={12} /> {(selectedLead || selectedProspect)!.email}</span>
+                                                        {selectedLead?.phone && <><span className="w-1 h-1 bg-gray-300 rounded-full"></span><span className="flex items-center gap-1"><Phone size={12} /> {selectedLead.phone}</span></>}
+                                                        {selectedProspect?.company_name && <><span className="w-1 h-1 bg-gray-300 rounded-full"></span><span>{selectedProspect.company_name}</span></>}
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-3">
-                                        <button className="p-2.5 rounded-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors cursor-pointer" aria-label="Make call"><Phone size={18} aria-hidden="true" /></button>
-                                        <button className="p-2.5 rounded-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors cursor-pointer" aria-label="Add to favorites"><Star size={18} aria-hidden="true" /></button>
-                                        <button className="p-2.5 rounded-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors cursor-pointer" aria-label="More options"><MoreVertical size={18} aria-hidden="true" /></button>
+                                    <div className="flex items-center gap-2 relative">
+                                        {/* Copy feedback toast */}
+                                        {copyFeedback && (
+                                            <span className="absolute -top-8 right-0 bg-black text-white text-xs px-2 py-1 rounded-lg whitespace-nowrap z-20">{copyFeedback}</span>
+                                        )}
+                                        {/* Convert prospect to lead */}
+                                        {selectedProspect && (
+                                            <button
+                                                onClick={async () => {
+                                                    setIsConvertingProspect(true);
+                                                    try {
+                                                        const { data: newLead, error } = await supabase.from('leads').insert({
+                                                            first_name: selectedProspect.first_name,
+                                                            last_name: selectedProspect.last_name,
+                                                            email: selectedProspect.email,
+                                                            phone: selectedProspect.phone || null,
+                                                            company: selectedProspect.company_name || '',
+                                                            estimated_value: 0,
+                                                            lead_status: 'new',
+                                                            lead_source: 'Prospect',
+                                                            prospect_id: selectedProspect.id,
+                                                        }).select().single();
+                                                        if (!error && newLead) {
+                                                            await supabase.from('prospects').update({ converted_to_lead_id: newLead.id }).eq('id', selectedProspect.id);
+                                                            await supabase.from('messages').update({ lead_id: newLead.id }).eq('prospect_id', selectedProspect.id);
+                                                            setSelectedProspectId(null);
+                                                            setSelectedLeadId(newLead.id);
+                                                            onProspectConverted(newLead.id);
+                                                        }
+                                                    } finally {
+                                                        setIsConvertingProspect(false);
+                                                    }
+                                                }}
+                                                disabled={isConvertingProspect}
+                                                className="flex items-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-medium transition-colors cursor-pointer disabled:opacity-50"
+                                            >
+                                                {isConvertingProspect ? <Loader2 size={13} className="animate-spin" /> : <UserCheck size={13} />}
+                                                Convert to Lead
+                                            </button>
+                                        )}
+                                        {/* Add custom contact as lead */}
+                                        {selectedCustomEmail && (
+                                            <button
+                                                onClick={() => {
+                                                    setAddLeadForm({ first_name: '', last_name: '', company: '', phone: '' });
+                                                    setShowAddLeadModal(true);
+                                                }}
+                                                className="flex items-center gap-1.5 px-3 py-2 bg-[#522B47] hover:bg-[#3D1F35] text-white rounded-xl text-xs font-medium transition-colors cursor-pointer"
+                                            >
+                                                <UserPlus size={13} />
+                                                Add as Lead
+                                            </button>
+                                        )}
+                                        {/* Phone / call button */}
+                                        <button
+                                            onClick={handlePhoneClick}
+                                            title={(selectedLead?.phone || (selectedProspect as any)?.phone) ? `Call ${selectedLead?.phone || (selectedProspect as any)?.phone}` : 'Copy email'}
+                                            className="p-2.5 rounded-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors cursor-pointer"
+                                        >
+                                            <Phone size={18} />
+                                        </button>
+                                        {/* Star / favourite */}
+                                        {(() => {
+                                            const key = selectedLeadId || selectedProspectId || selectedCustomEmail || '';
+                                            const isStarred = starredContacts.has(key);
+                                            return (
+                                                <button
+                                                    onClick={handleStarClick}
+                                                    title={isStarred ? 'Unstar contact' : 'Star contact'}
+                                                    className={`p-2.5 rounded-full border transition-colors cursor-pointer ${isStarred ? 'bg-amber-50 border-amber-300 text-amber-500' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-500'}`}
+                                                >
+                                                    <Star size={18} fill={isStarred ? 'currentColor' : 'none'} />
+                                                </button>
+                                            );
+                                        })()}
+                                        {/* More options dropdown */}
+                                        <div className="relative">
+                                            <button
+                                                onClick={() => setShowMoreMenu(v => !v)}
+                                                className="p-2.5 rounded-full bg-white border border-gray-200 hover:bg-gray-50 text-gray-500 transition-colors cursor-pointer"
+                                            >
+                                                <MoreVertical size={18} />
+                                            </button>
+                                            {showMoreMenu && (
+                                                <>
+                                                    {/* Backdrop to close */}
+                                                    <div className="fixed inset-0 z-10" onClick={() => setShowMoreMenu(false)} />
+                                                    <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 z-20 overflow-hidden py-1">
+                                                        <button
+                                                            onClick={() => {
+                                                                const email = selectedLead?.email || selectedProspect?.email || selectedCustomEmail || '';
+                                                                copyToClipboard(email, 'Email copied!');
+                                                                setShowMoreMenu(false);
+                                                            }}
+                                                            className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer"
+                                                        >
+                                                            <Mail size={14} className="text-gray-400" />
+                                                            Copy Email
+                                                        </button>
+                                                        {(selectedLead?.phone || (selectedProspect as any)?.phone) && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    copyToClipboard(selectedLead?.phone || (selectedProspect as any)?.phone, 'Phone copied!');
+                                                                    setShowMoreMenu(false);
+                                                                }}
+                                                                className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer"
+                                                            >
+                                                                <Phone size={14} className="text-gray-400" />
+                                                                Copy Phone
+                                                            </button>
+                                                        )}
+                                                        {selectedLead?.linkedin_url && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    const url = selectedLead.linkedin_url!;
+                                                                    window.open(url.startsWith('http') ? url : `https://${url}`, '_blank', 'noopener,noreferrer');
+                                                                    setShowMoreMenu(false);
+                                                                }}
+                                                                className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer"
+                                                            >
+                                                                <Link2 size={14} className="text-gray-400" />
+                                                                Open LinkedIn
+                                                            </button>
+                                                        )}
+                                                        {selectedCustomEmail && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setAddLeadForm({ first_name: '', last_name: '', company: '', phone: '' });
+                                                                    setShowAddLeadModal(true);
+                                                                    setShowMoreMenu(false);
+                                                                }}
+                                                                className="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 cursor-pointer"
+                                                            >
+                                                                <UserPlus size={14} className="text-gray-400" />
+                                                                Add as Lead
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -854,35 +1575,8 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                     </div>
                                 )}
 
-                                {/* Thread Tabs */}
+                                {/* Thread Tabs — newest first (leftmost), New Thread pinned at left */}
                                 <div className="flex items-center gap-2 px-6 py-3 border-b border-gray-100 bg-white/30 overflow-x-auto scrollbar-hide">
-                                    {threads.map(thread => (
-                                        <button
-                                            key={thread.threadId}
-                                            onClick={() => {
-                                                setActiveThreadId(thread.threadId);
-                                                setSubjectLine('');
-                                                setNewMessage('');
-                                            }}
-                                            className={`
-                                                flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
-                                                whitespace-nowrap transition-all cursor-pointer flex-shrink-0
-                                                ${activeThreadId === thread.threadId
-                                                    ? 'bg-[#522B47] text-white shadow-md'
-                                                    : 'bg-white/60 text-gray-600 hover:bg-white hover:text-gray-900 border border-gray-200'
-                                                }
-                                            `}
-                                        >
-                                            <MessageSquare size={14} className="flex-shrink-0" />
-                                            <span className="truncate max-w-[180px]">{thread.label}</span>
-                                            {thread.hasUnread && (
-                                                <span className="w-2 h-2 bg-red-500 rounded-full flex-shrink-0" />
-                                            )}
-                                            <span className={`text-xs ${activeThreadId === thread.threadId ? 'text-gray-400' : 'text-gray-400'}`}>
-                                                ({thread.messageCount})
-                                            </span>
-                                        </button>
-                                    ))}
                                     <button
                                         onClick={() => {
                                             setActiveThreadId('__new__');
@@ -901,6 +1595,38 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                         <Plus size={14} />
                                         <span>New Thread</span>
                                     </button>
+                                    {[...threads].reverse().map(thread => (
+                                        <button
+                                            key={thread.threadId}
+                                            onClick={() => {
+                                                setActiveThreadId(thread.threadId);
+                                                setSubjectLine('');
+                                                setNewMessage('');
+                                            }}
+                                            className={`
+                                                flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+                                                whitespace-nowrap transition-all cursor-pointer flex-shrink-0
+                                                ${activeThreadId === thread.threadId
+                                                    ? 'bg-[#522B47] text-white shadow-md'
+                                                    : 'bg-white/60 text-gray-600 hover:bg-white hover:text-gray-900 border border-gray-200'
+                                                }
+                                            `}
+                                        >
+                                            <MessageSquare size={14} className="flex-shrink-0" />
+                                            <span className="truncate max-w-[160px]">{thread.label}</span>
+                                            {thread.hasCc && (
+                                                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full flex-shrink-0 ${
+                                                    activeThreadId === thread.threadId
+                                                        ? 'bg-white/20 text-white'
+                                                        : 'bg-blue-100 text-blue-600'
+                                                }`}>CC</span>
+                                            )}
+                                            {thread.hasUnread && (
+                                                <span className="w-2 h-2 bg-red-500 rounded-full flex-shrink-0" />
+                                            )}
+                                            <span className="text-xs opacity-50">({thread.messageCount})</span>
+                                        </button>
+                                    ))}
                                 </div>
 
                                 {/* Messages Area */}
@@ -935,12 +1661,12 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                     <div className={`flex gap-3 max-w-[80%] ${isOutbound ? 'flex-row-reverse' : 'flex-row'}`}>
                                                         {/* Avatar placeholder for alignment */}
                                                         <div className="w-8 flex-shrink-0 flex flex-col items-center">
-                                                            {!isOutbound && showAvatar && selectedLead.avatar_url && (
+                                                            {!isOutbound && showAvatar && selectedLead?.avatar_url && (
                                                                 <img src={selectedLead.avatar_url} className="w-8 h-8 rounded-full object-cover shadow-sm" />
                                                             )}
-                                                            {!isOutbound && showAvatar && !selectedLead.avatar_url && (
-                                                                <div className="w-8 h-8 rounded-full bg-accent-beige flex items-center justify-center text-xs font-bold">
-                                                                    {selectedLead.first_name[0]}
+                                                            {!isOutbound && showAvatar && !(selectedLead?.avatar_url) && (
+                                                                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${selectedProspect ? 'bg-amber-100 text-amber-700' : 'bg-accent-beige'}`}>
+                                                                    {(selectedLead || selectedProspect)?.first_name[0]}
                                                                 </div>
                                                             )}
                                                         </div>
@@ -952,6 +1678,14 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                                     isOwnMessage ? 'text-gray-400' : 'text-blue-500'
                                                                 }`}>
                                                                     {senderLabel}
+                                                                </span>
+                                                            )}
+                                                            {/* CC badge: show when current user was CC'd, not the direct recipient */}
+                                                            {msg.direction === 'inbound' && msg.cc_emails && currentUser?.email &&
+                                                                msg.cc_emails.some(e => e.toLowerCase() === currentUser.email!.toLowerCase()) &&
+                                                                !(msg.to_emails?.some(e => e.toLowerCase() === currentUser.email!.toLowerCase())) && (
+                                                                <span className="inline-flex items-center gap-1 text-[9px] font-medium text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full mb-1">
+                                                                    CC'd to you
                                                                 </span>
                                                             )}
                                                             <div className={`
@@ -969,6 +1703,16 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                                     </p>
                                                                 )}
                                                                 <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+                                                                {/* CC metadata line */}
+                                                                {(msg.cc_emails && msg.cc_emails.length > 0) && (
+                                                                    <div className={`text-[10px] mt-2 pt-1.5 border-t ${isOutbound ? 'border-white/20 text-white/60' : 'border-gray-100 text-gray-400'}`}>
+                                                                        {msg.to_emails && msg.to_emails.length > 0 && (
+                                                                            <span>To: {msg.to_emails.join(', ')}</span>
+                                                                        )}
+                                                                        {msg.to_emails && msg.to_emails.length > 0 && <span className="mx-1">·</span>}
+                                                                        <span>CC: {msg.cc_emails.join(', ')}</span>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                             <span className="text-[10px] text-gray-400 mt-1 flex items-center gap-1 px-1">
                                                                 {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -1008,6 +1752,82 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                 className="w-full px-4 py-2 border-b border-gray-100 text-sm font-semibold outline-none text-gray-900 bg-transparent placeholder-gray-400"
                                             />
                                         )}
+                                        {/* CC field for replies */}
+                                        <div className="px-4 pt-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowReplyCc(!showReplyCc)}
+                                                className="text-[10px] font-medium text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
+                                            >
+                                                {showReplyCc ? '− CC' : '+ CC'}
+                                            </button>
+                                            {showReplyCc && (
+                                                <div className="relative mt-1">
+                                                    <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 bg-gray-50 rounded-lg">
+                                                        {replyCc.map((email, idx) => (
+                                                            <span key={idx} className="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-md px-2 py-0.5 text-[11px] font-medium text-gray-700">
+                                                                {email}
+                                                                <button onClick={() => setReplyCc(replyCc.filter((_, i) => i !== idx))} className="text-gray-400 hover:text-red-500 cursor-pointer"><X size={10} /></button>
+                                                            </span>
+                                                        ))}
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Add CC — type name or email..."
+                                                            value={replyCcInput}
+                                                            onChange={e => setReplyCcInput(e.target.value)}
+                                                            onKeyDown={e => {
+                                                                if ((e.key === 'Enter' || e.key === ',') && replyCcInput.trim()) {
+                                                                    e.preventDefault();
+                                                                    const email = replyCcInput.trim().replace(/,$/, '');
+                                                                    if (email && !replyCc.includes(email)) setReplyCc([...replyCc, email]);
+                                                                    setReplyCcInput('');
+                                                                }
+                                                            }}
+                                                            onBlur={() => {
+                                                                setTimeout(() => {
+                                                                    const email = replyCcInput.trim();
+                                                                    if (email && !replyCc.includes(email)) setReplyCc([...replyCc, email]);
+                                                                    setReplyCcInput('');
+                                                                }, 150);
+                                                            }}
+                                                            className="flex-1 min-w-[100px] bg-transparent text-xs outline-none placeholder-gray-400"
+                                                        />
+                                                    </div>
+                                                    {/* Team member suggestions */}
+                                                    {replyCcInput.trim() && (() => {
+                                                        const q = replyCcInput.toLowerCase();
+                                                        const suggestions = teamMembers.filter(m =>
+                                                            m.email && !replyCc.includes(m.email) &&
+                                                            (m.full_name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q))
+                                                        );
+                                                        if (!suggestions.length) return null;
+                                                        return (
+                                                            <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-30 overflow-hidden">
+                                                                {suggestions.map(m => (
+                                                                    <button
+                                                                        key={m.id}
+                                                                        onMouseDown={e => {
+                                                                            e.preventDefault();
+                                                                            if (!replyCc.includes(m.email)) setReplyCc([...replyCc, m.email]);
+                                                                            setReplyCcInput('');
+                                                                        }}
+                                                                        className="w-full text-left px-3 py-2 hover:bg-gray-50 flex items-center gap-2.5 cursor-pointer"
+                                                                    >
+                                                                        <div className="w-6 h-6 rounded-full bg-[#522B47] text-white text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                                                                            {m.full_name[0]}
+                                                                        </div>
+                                                                        <div>
+                                                                            <div className="text-xs font-medium text-gray-900">{m.full_name}</div>
+                                                                            <div className="text-[10px] text-gray-400">{m.email}</div>
+                                                                        </div>
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        );
+                                                    })()}
+                                                </div>
+                                            )}
+                                        </div>
                                         <textarea
                                             placeholder={isNewThread ? "Compose your new email..." : "Write your reply..."}
                                             value={newMessage}
@@ -1052,24 +1872,46 @@ const ContactView: React.FC<ContactViewProps> = ({ leads, messages, onSendMessag
                                                     <Paperclip size={18} aria-hidden="true" />
                                                 </button>
                                             </div>
-                                            <button
-                                                onClick={handleSend}
-                                                disabled={!newMessage.trim() || isSending}
-                                                className="flex items-center gap-2 bg-[#522B47] text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-black/10 cursor-pointer"
-                                                aria-label="Send email message"
-                                            >
-                                                {isSending ? (
-                                                    <>
-                                                        <span>Sending...</span>
-                                                        <Loader2 size={14} className="animate-spin" />
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <span>{isNewThread ? 'Send Email' : 'Reply'}</span>
-                                                        <Send size={14} aria-hidden="true" />
-                                                    </>
-                                                )}
-                                            </button>
+                                            {activeThread?.hasCc && replyAllCcList.length > 0 && !isNewThread ? (
+                                                // CC thread — locked to Reply All, no toggle
+                                                <button
+                                                    onClick={handleSend}
+                                                    disabled={!newMessage.trim() || isSending}
+                                                    className="flex items-center gap-2 bg-[#522B47] text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-black/10 cursor-pointer"
+                                                    aria-label="Reply All"
+                                                >
+                                                    {isSending ? (
+                                                        <>
+                                                            <span>Sending...</span>
+                                                            <Loader2 size={14} className="animate-spin" />
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <span>Reply All</span>
+                                                            <Send size={14} aria-hidden="true" />
+                                                        </>
+                                                    )}
+                                                </button>
+                                            ) : (
+                                                <button
+                                                    onClick={handleSend}
+                                                    disabled={!newMessage.trim() || isSending}
+                                                    className="flex items-center gap-2 bg-[#522B47] text-white px-5 py-2 rounded-xl text-sm font-medium hover:bg-[#3D1F35] disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md shadow-black/10 cursor-pointer"
+                                                    aria-label="Send email message"
+                                                >
+                                                    {isSending ? (
+                                                        <>
+                                                            <span>Sending...</span>
+                                                            <Loader2 size={14} className="animate-spin" />
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <span>{isNewThread ? 'Send Email' : 'Reply'}</span>
+                                                            <Send size={14} aria-hidden="true" />
+                                                        </>
+                                                    )}
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 </div>

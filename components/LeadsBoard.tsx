@@ -3,7 +3,7 @@ import { Lead, LeadStatus, Message, EmailCampaignRecipient, EmailToCampaign } fr
 import {
     Plus, Search, Filter, LayoutGrid, List, RefreshCw, Download, Edit3,
     MoreHorizontal, ChevronRight, Star, Send, X,
-    ArrowLeft, Mail, Phone, Loader2, Trash2, ChevronDown, Clock, Eye, FileSearch, Linkedin, Camera
+    ArrowLeft, Mail, Phone, Loader2, Trash2, ChevronDown, Clock, Eye, FileSearch, Linkedin, Camera, StickyNote
 } from 'lucide-react';
 import { emailCampaignService } from '../services/supabaseService';
 import toast from 'react-hot-toast';
@@ -46,8 +46,9 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
     // Detail panel state
     const [isEditing, setIsEditing] = useState(false);
     const [editForm, setEditForm] = useState<Partial<Lead>>({});
-    const [notes, setNotes] = useState('');
+    const [newNoteText, setNewNoteText] = useState('');
     const [isSavingNotes, setIsSavingNotes] = useState(false);
+    const [deletingNoteIdx, setDeletingNoteIdx] = useState<number | null>(null);
 
     // Row action dropdown
     const [activeRowMenu, setActiveRowMenu] = useState<string | null>(null);
@@ -78,13 +79,25 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
     // Sync notes when lead changes
     useEffect(() => {
         if (selectedLead) {
-            setNotes(selectedLead.notes || '');
+            setNewNoteText('');
             setIsEditing(false);
             setEditForm({});
             setShowAvatarPopover(false);
             setAvatarUrlInput('');
         }
     }, [selectedLeadId]);
+
+    // Parse notes string into individual note objects
+    const NOTE_SEP = '\n---NOTE---\n';
+    const parsedNotes: { text: string; date: string }[] = (() => {
+        const raw = selectedLead?.notes || '';
+        if (!raw.trim()) return [];
+        return raw.split(NOTE_SEP).map(entry => {
+            const dateMatch = entry.match(/^\[(\d{4}-\d{2}-\d{2}T[^\]]+)\]\n/);
+            if (dateMatch) return { date: dateMatch[1], text: entry.slice(dateMatch[0].length) };
+            return { date: '', text: entry };
+        }).filter(n => n.text.trim());
+    })();
 
     // Load outreach summary for leads with prospect_id
     useEffect(() => {
@@ -205,14 +218,29 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
         } catch { toast.error('Failed to update lead'); }
     };
 
-    const handleSaveNotes = async () => {
-        if (!selectedLead) return;
+    const handleAddNote = async () => {
+        if (!selectedLead || !newNoteText.trim()) return;
         setIsSavingNotes(true);
         try {
-            await onUpdateLead({ ...selectedLead, notes });
-            toast.success('Notes saved');
-        } catch { toast.error('Failed to save notes'); }
+            const newEntry = `[${new Date().toISOString()}]\n${newNoteText.trim()}`;
+            const existing = selectedLead.notes?.trim() || '';
+            const combined = existing ? existing + NOTE_SEP + newEntry : newEntry;
+            await onUpdateLead({ ...selectedLead, notes: combined });
+            setNewNoteText('');
+        } catch { toast.error('Failed to save note'); }
         setIsSavingNotes(false);
+    };
+
+    const handleDeleteNote = async (idx: number) => {
+        if (!selectedLead) return;
+        setDeletingNoteIdx(idx);
+        try {
+            const raw = selectedLead.notes || '';
+            const entries = raw.split(NOTE_SEP);
+            entries.splice(idx, 1);
+            await onUpdateLead({ ...selectedLead, notes: entries.join(NOTE_SEP) });
+        } catch { toast.error('Failed to delete note'); }
+        setDeletingNoteIdx(null);
     };
 
     const handleSaveAvatar = async () => {
@@ -939,26 +967,63 @@ const LeadsBoard: React.FC<LeadsBoardProps> = ({
 
                             {/* Notes */}
                             <div className="px-6 pb-4">
-                                <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <StickyNote size={13} className="text-gray-400" />
                                     <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Notes</p>
-                                    {notes !== (selectedLead.notes || '') && (
+                                    {parsedNotes.length > 0 && (
+                                        <span className="ml-auto text-[10px] font-semibold bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">{parsedNotes.length}</span>
+                                    )}
+                                </div>
+
+                                {/* Existing notes — newest first */}
+                                {parsedNotes.length > 0 && (
+                                    <div className="space-y-2 mb-3 max-h-64 overflow-y-auto pr-0.5">
+                                        {[...parsedNotes].reverse().map((note, revIdx) => {
+                                            const realIdx = parsedNotes.length - 1 - revIdx;
+                                            const dateStr = note.date
+                                                ? new Date(note.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                                                : '';
+                                            return (
+                                                <div key={realIdx} className="group relative bg-amber-50 border border-amber-100 rounded-xl px-3.5 py-3">
+                                                    {dateStr && (
+                                                        <p className="text-[10px] text-amber-400 font-medium mb-1">{dateStr}</p>
+                                                    )}
+                                                    <p className="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">{note.text}</p>
+                                                    <button
+                                                        onClick={() => handleDeleteNote(realIdx)}
+                                                        disabled={deletingNoteIdx === realIdx}
+                                                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-100 text-gray-300 hover:text-red-500 transition-all cursor-pointer"
+                                                        title="Delete note"
+                                                    >
+                                                        {deletingNoteIdx === realIdx ? <Loader2 size={11} className="animate-spin" /> : <X size={11} />}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {/* Add new note */}
+                                <div className="relative">
+                                    <textarea
+                                        value={newNoteText}
+                                        onChange={e => setNewNoteText(e.target.value)}
+                                        onKeyDown={e => { if (e.key === 'Enter' && e.metaKey) handleAddNote(); }}
+                                        placeholder="Add a note... (⌘↵ to save)"
+                                        rows={2}
+                                        className="w-full px-3 py-2.5 bg-white/60 border border-gray-100 rounded-xl text-sm resize-none outline-none focus:ring-2 focus:ring-black/5 focus:border-black/10 placeholder-gray-400 pr-16"
+                                    />
+                                    {newNoteText.trim() && (
                                         <button
-                                            onClick={handleSaveNotes}
+                                            onClick={handleAddNote}
                                             disabled={isSavingNotes}
-                                            className="text-xs text-black font-medium hover:underline cursor-pointer flex items-center gap-1"
+                                            className="absolute bottom-2.5 right-2.5 flex items-center gap-1 bg-[#522B47] text-white text-[11px] font-medium px-2.5 py-1 rounded-lg hover:bg-[#3D1F35] transition-colors cursor-pointer disabled:opacity-50"
                                         >
-                                            {isSavingNotes ? <Loader2 size={12} className="animate-spin" /> : null}
-                                            Save
+                                            {isSavingNotes ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+                                            Add
                                         </button>
                                     )}
                                 </div>
-                                <textarea
-                                    value={notes}
-                                    onChange={(e) => setNotes(e.target.value)}
-                                    onBlur={() => { if (notes !== (selectedLead.notes || '')) handleSaveNotes(); }}
-                                    placeholder="Add notes about this lead..."
-                                    className="w-full px-3 py-2.5 bg-white/50 border border-gray-100 rounded-xl text-sm resize-none min-h-[60px] outline-none focus:ring-2 focus:ring-black/5 focus:border-black/10 placeholder-gray-400"
-                                />
                             </div>
 
                             {/* Activity Timeline */}

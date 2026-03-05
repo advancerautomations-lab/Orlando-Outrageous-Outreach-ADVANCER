@@ -274,6 +274,15 @@ Return ONLY this JSON with no other text: {"classification": "lead", "confidence
     }
 }
 
+// Parse comma-separated email list header into array of email addresses
+function parseEmailList(header: string): string[] {
+    if (!header) return []
+    return header.split(',').map(addr => {
+        const match = addr.match(/<([^>]+)>/)
+        return (match ? match[1] : addr).toLowerCase().trim()
+    }).filter(Boolean)
+}
+
 // Strip quoted reply content from email body
 function stripQuotedContent(body: string): string {
     let cleaned = body
@@ -316,8 +325,13 @@ async function processInboundEmail(supabase: any, userId: string, gmailMessage: 
     const fromHeader = getHeader('From')
     const subject = getHeader('Subject')
     const date = getHeader('Date')
-    const messageId = gmailMessage.id
+    const gmailApiId = gmailMessage.id        // Per-account Gmail API ID (used for cc_thread_ids matching & threadId)
+    const rfcMessageId = getHeader('Message-ID') // RFC 2822 Message-ID — SAME across all recipients' copies of the same email
     const threadId = gmailMessage.threadId
+
+    // Extract To and Cc recipients for CC visibility
+    const toEmails = parseEmailList(getHeader('To'))
+    const ccEmails = parseEmailList(getHeader('Cc'))
 
     // Parse "From" header - extract email and name
     // Formats: "Name <email@example.com>" or "email@example.com"
@@ -328,44 +342,137 @@ async function processInboundEmail(supabase: any, userId: string, gmailMessage: 
     const rawBody = extractEmailBody(gmailMessage)
     const bodyContent = stripQuotedContent(rawBody)
 
-    // Find matching lead by sender email
+    // ------------------------------------------------------------------
+    // Step 1: Check if this message was sent by one of our own app users.
+    // When User A sends an email and CCs User B, Gmail delivers a copy to
+    // User B's INBOX. User B's webhook fires, but the sender is User A
+    // (another app user), not a lead. We store a shadow outbound record for
+    // User B so they have their own gmail_thread_id to use when replying.
+    // ------------------------------------------------------------------
+    const { data: senderUsers } = await supabase
+        .from('users')
+        .select('id')
+        .ilike('email', senderEmail)
+        .limit(1)
+
+    if (senderUsers && senderUsers.length > 0) {
+        // Sender is a team member — this is a CC'd copy of an outbound email landing in our inbox.
+        // Don't create a new row. Instead, find the primary outbound row that gmail-send already
+        // created and add our gmail_thread_id to its cc_thread_ids map so we can reply correctly.
+
+        // Get current webhook user's email so we can key the map
+        const { data: currentUserData } = await supabase
+            .from('users')
+            .select('email')
+            .eq('id', userId)
+            .single()
+
+        if (!currentUserData?.email) {
+            console.log('Could not fetch email for user:', userId)
+            return
+        }
+
+        // Find the primary outbound row by Gmail API ID (gmail-send stores sendData.id)
+        const { data: primaryRow } = await supabase
+            .from('messages')
+            .select('id, cc_thread_ids')
+            .eq('gmail_message_id', gmailApiId)
+            .eq('direction', 'outbound')
+            .limit(1)
+
+        if (primaryRow && primaryRow.length > 0) {
+            const row = primaryRow[0]
+            const updatedMap = { ...(row.cc_thread_ids || {}), [currentUserData.email.toLowerCase()]: threadId }
+            await supabase
+                .from('messages')
+                .update({ cc_thread_ids: updatedMap })
+                .eq('id', row.id)
+            console.log('Updated cc_thread_ids for', currentUserData.email, '→', threadId)
+        } else {
+            // Primary row not found yet (race condition: webhook arrived before gmail-send finished).
+            // Fall back to matching by subject + recent sent_at + direction
+            const leadEmail = toEmails.find(e => e !== senderEmail) || ''
+            const { data: fallbackRow } = await supabase
+                .from('messages')
+                .select('id, cc_thread_ids')
+                .eq('direction', 'outbound')
+                .eq('subject', subject || '(No Subject)')
+                .gte('sent_at', new Date(Date.now() - 5 * 60 * 1000).toISOString())
+                .limit(1)
+
+            if (fallbackRow && fallbackRow.length > 0) {
+                const row = fallbackRow[0]
+                const updatedMap = { ...(row.cc_thread_ids || {}), [currentUserData.email.toLowerCase()]: threadId }
+                await supabase
+                    .from('messages')
+                    .update({ cc_thread_ids: updatedMap })
+                    .eq('id', row.id)
+                console.log('Updated cc_thread_ids (fallback) for', currentUserData.email, '→', threadId)
+            } else {
+                console.log('No primary outbound row found to attach cc_thread_id. Lead email:', leadEmail)
+            }
+        }
+        return
+    }
+
+    // ------------------------------------------------------------------
+    // Step 2: Normal inbound processing — find matching lead/prospect.
+    // Deduplication key: rfcMessageId (the RFC 2822 Message-ID header).
+    // This header is IDENTICAL across all recipients' copies of the same email,
+    // unlike gmailMessage.id which is unique per Gmail account.
+    // The unique index on gmail_message_id enforces this at the DB level.
+    // If two webhooks fire simultaneously, the second INSERT gets a 23505
+    // unique violation which we treat as a successful no-op.
+    // ------------------------------------------------------------------
+
+    // Determine which user to attribute the inbound message to.
+    // Prefer the user who sent the original outbound email (User A), so the
+    // message always lands on the right user regardless of which webhook wins.
+    const { data: outboundMsg } = await supabase
+        .from('messages')
+        .select('user_id')
+        .eq('direction', 'outbound')
+        .contains('to_emails', [senderEmail])
+        .order('sent_at', { ascending: false })
+        .limit(1)
+    const attributedUserId = outboundMsg?.[0]?.user_id || userId
+
+    // ------------------------------------------------------------------
+    // Step 3: Normal inbound processing — find matching lead/prospect
+    // ------------------------------------------------------------------
     const { data: leads } = await supabase
         .from('leads')
-        .select('id, email')
+        .select('id, email, prospect_id')
         .ilike('email', senderEmail)
         .limit(1)
 
     if (leads && leads.length > 0) {
         const lead = leads[0]
 
-        // Check for duplicate by gmail_message_id or recent subject+timestamp
-        const { data: existing } = await supabase
-            .from('messages')
-            .select('id')
-            .eq('lead_id', lead.id)
-            .eq('subject', subject || '(No Subject)')
-            .eq('direction', 'inbound')
-            .gte('timestamp', new Date(Date.now() - 60000).toISOString())
-            .limit(1)
-
-        if (existing && existing.length > 0) {
-            console.log('Duplicate message detected, skipping')
-            return
-        }
-
-        // Insert inbound message (DB columns: body, sent_at — NOT content/timestamp)
-        await supabase.from('messages').insert({
+        const { error: insertError } = await supabase.from('messages').insert({
             lead_id: lead.id,
-            user_id: userId,
+            prospect_id: lead.prospect_id || null,
+            user_id: attributedUserId,
             direction: 'inbound',
             subject: subject || '(No Subject)',
             body: bodyContent.substring(0, 10000),
             sent_at: date ? new Date(date).toISOString() : new Date().toISOString(),
             is_read: false,
-            gmail_thread_id: threadId || null
+            gmail_thread_id: threadId || null,
+            gmail_message_id: rfcMessageId || null,
+            to_emails: toEmails.length > 0 ? toEmails : null,
+            cc_emails: ccEmails.length > 0 ? ccEmails : null,
         })
 
-        console.log('Stored inbound message from:', senderEmail, 'for lead:', lead.id)
+        if (insertError) {
+            if (insertError.code === '23505') {
+                console.log('Duplicate inbound message (23505), skipping:', rfcMessageId)
+            } else {
+                console.error('Error storing inbound message:', insertError)
+            }
+        } else {
+            console.log('Stored inbound message from:', senderEmail, 'for lead:', lead.id)
+        }
     } else {
         // No matching lead — check prospects table for cold outreach replies
         const { data: prospects } = await supabase
@@ -413,17 +520,36 @@ async function processInboundEmail(supabase: any, userId: string, gmailMessage: 
                 console.error('Error updating prospect converted_to_lead_id:', prospectUpdateError)
             }
 
-            // Store the inbound message linked to the new lead
-            await supabase.from('messages').insert({
+            // Backfill lead_id on any existing outbound messages sent to this prospect
+            await supabase
+                .from('messages')
+                .update({ lead_id: newLead.id })
+                .eq('prospect_id', prospect.id)
+                .eq('direction', 'outbound')
+
+            // Store the inbound message linked to both the new lead and the prospect
+            const { error: insertError } = await supabase.from('messages').insert({
                 lead_id: newLead.id,
-                user_id: userId,
+                prospect_id: prospect.id,
+                user_id: attributedUserId,
                 direction: 'inbound',
                 subject: subject || '(No Subject)',
                 body: bodyContent.substring(0, 10000),
                 sent_at: date ? new Date(date).toISOString() : new Date().toISOString(),
                 is_read: false,
-                gmail_thread_id: threadId || null
+                gmail_thread_id: threadId || null,
+                gmail_message_id: rfcMessageId || null,
+                to_emails: toEmails.length > 0 ? toEmails : null,
+                cc_emails: ccEmails.length > 0 ? ccEmails : null,
             })
+
+            if (insertError) {
+                if (insertError.code === '23505') {
+                    console.log('Duplicate prospect reply (23505), skipping:', rfcMessageId)
+                } else {
+                    console.error('Error storing prospect reply:', insertError)
+                }
+            }
 
             // Trigger n8n webhook for prospect reply (fire-and-forget)
             const n8nWebhookUrl = Deno.env.get('N8N_PROSPECT_REPLY_WEBHOOK_URL')
@@ -462,7 +588,45 @@ async function processInboundEmail(supabase: any, userId: string, gmailMessage: 
 
             console.log('Promoted prospect to lead:', newLead.id, 'and stored inbound message')
         } else {
-            // No matching lead or prospect — check heuristics first
+            // No matching lead or prospect — check if we've previously emailed this person
+            const { data: previousOutbound } = await supabase
+                .from('messages')
+                .select('lead_id, prospect_id')
+                .contains('to_emails', [senderEmail])
+                .eq('direction', 'outbound')
+                .limit(1)
+
+            if (previousOutbound && previousOutbound.length > 0) {
+                const prev = previousOutbound[0]
+                const { error: insertError } = await supabase.from('messages').insert({
+                    lead_id: prev.lead_id || null,
+                    prospect_id: prev.prospect_id || null,
+                    user_id: attributedUserId,
+                    direction: 'inbound',
+                    subject: subject || '(No Subject)',
+                    body: bodyContent.substring(0, 10000),
+                    sent_at: date ? new Date(date).toISOString() : new Date().toISOString(),
+                    is_read: false,
+                    gmail_thread_id: threadId || null,
+                    gmail_message_id: rfcMessageId || null,
+                    sender_name: senderName || null,
+                    sender_email: senderEmail,
+                    to_emails: toEmails.length > 0 ? toEmails : null,
+                    cc_emails: ccEmails.length > 0 ? ccEmails : null,
+                })
+                if (insertError) {
+                    if (insertError.code === '23505') {
+                        console.log('Duplicate previously-emailed reply (23505), skipping:', rfcMessageId)
+                    } else {
+                        console.error('Error storing previously-emailed reply:', insertError)
+                    }
+                } else {
+                    console.log('Stored inbound reply from previously emailed contact:', senderEmail)
+                }
+                return
+            }
+
+            // No matching lead, prospect, or previous outbound — check heuristics
             const msgHeaders = gmailMessage.payload?.headers || []
             if (isObviouslyNotALead(senderEmail, msgHeaders)) {
                 console.log('Heuristic filter: skipping obvious non-lead:', senderEmail)
@@ -478,9 +642,10 @@ async function processInboundEmail(supabase: any, userId: string, gmailMessage: 
                     from_name: senderName || null,
                     subject: subject || '(No Subject)',
                     content: bodyContent.substring(0, 10000),
-                    gmail_message_id: messageId,
+                    gmail_message_id: rfcMessageId || gmailApiId,
                     received_at: date ? new Date(date).toISOString() : new Date().toISOString(),
-                    status: 'pending'
+                    status: 'pending',
+                    cc_emails: ccEmails.length > 0 ? ccEmails : null,
                 })
                 .select('id')
                 .single()

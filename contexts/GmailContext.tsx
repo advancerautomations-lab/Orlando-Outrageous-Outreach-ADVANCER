@@ -27,7 +27,7 @@ interface GmailContextType {
     isAuthenticated: boolean;
     isLoading: boolean;
     login: () => void;
-    sendEmail: (to: string, subject: string, body: string, leadId?: string, files?: File[], threadId?: string) => Promise<boolean>;
+    sendEmail: (to: string, subject: string, body: string, leadId?: string, files?: File[], threadId?: string, cc?: string[], prospectId?: string, inReplyToMsgId?: string) => Promise<boolean>;
     checkAuthStatus: () => Promise<void>;
     userEmail: string | null;
     watchStatus: WatchStatus;
@@ -241,12 +241,17 @@ export function GmailProvider({ children }: { children: React.ReactNode }) {
         });
     };
 
-    const sendEmail = async (to: string, subject: string, body: string, leadId?: string, files?: File[], threadId?: string): Promise<boolean> => {
+    const sendEmail = async (to: string, subject: string, body: string, leadId?: string, files?: File[], threadId?: string, cc?: string[], prospectId?: string, inReplyToMsgId?: string): Promise<boolean> => {
         try {
-            // Get current session
-            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            // Get session, refreshing if expired
+            let sessionResult = await supabase.auth.getSession();
+            let session = sessionResult.data.session;
+            if (!session) {
+                const refreshed = await supabase.auth.refreshSession();
+                session = refreshed.data.session;
+            }
 
-            if (sessionError || !session) {
+            if (!session) {
                 toast.error('Session expired. Please log in again.');
                 return false;
             }
@@ -267,11 +272,14 @@ export function GmailProvider({ children }: { children: React.ReactNode }) {
                 body: {
                     userId: session.user.id,
                     leadId: leadId || undefined,
+                    prospectId: prospectId || undefined,
                     to,
+                    cc: cc && cc.length > 0 ? cc : undefined,
                     subject,
                     body,
                     attachments: attachments.length > 0 ? attachments : undefined,
-                    threadId: threadId || undefined
+                    threadId: threadId || undefined,
+                    inReplyToMsgId: inReplyToMsgId || undefined
                 },
                 headers: {
                     Authorization: `Bearer ${session.access_token}`

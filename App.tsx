@@ -19,8 +19,8 @@ const SettingsView = lazy(() => import('./components/SettingsView'));
 const DeepResearchView = lazy(() => import('./components/DeepResearchView'));
 const SetupWizard = lazy(() => import('./components/SetupWizard'));
 const CampaignWizardView = lazy(() => import('./components/CampaignWizardView'));
-import { leadService, meetingService, messageService, mapDbToLead, mapDbToMessage } from './services/supabaseService';
-import { Lead, Meeting, LeadStatus, Message, AppNotification } from './types';
+import { leadService, meetingService, messageService, prospectService, mapDbToLead, mapDbToMessage } from './services/supabaseService';
+import { Lead, Meeting, LeadStatus, Message, AppNotification, Prospect } from './types';
 import { Bell, Search, User, Mail, Inbox, TrendingUp, X, Check } from 'lucide-react';
 import { GmailAuthButton } from './components/GmailAuthButton';
 
@@ -37,6 +37,7 @@ const App: React.FC = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [prospects, setProspects] = useState<Prospect[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Notifications
@@ -122,14 +123,16 @@ const App: React.FC = () => {
     setIsLoading(true);
     const fetchData = async () => {
       try {
-        const [leadsData, meetingsData, messagesData] = await Promise.all([
+        const [leadsData, meetingsData, messagesData, prospectsData] = await Promise.all([
           leadService.getLeads(),
           meetingService.getMeetings(),
-          messageService.getMessages()
+          messageService.getMessages(),
+          prospectService.getAll()
         ]);
         setLeads(leadsData);
         setMeetings(meetingsData);
         setMessages(messagesData);
+        setProspects(prospectsData);
       } catch (error) {
         console.error("Failed to fetch data", error);
       } finally {
@@ -158,12 +161,16 @@ const App: React.FC = () => {
           // Generate notification for inbound messages
           if (newMsg.direction === 'inbound') {
             const lead = leadsRef.current.find(l => l.id === newMsg.lead_id);
+            const userEmail = currentUser?.email?.toLowerCase();
+            const wasCcd = userEmail && newMsg.cc_emails?.some((e: string) => e.toLowerCase() === userEmail)
+              && !(newMsg.to_emails?.some((e: string) => e.toLowerCase() === userEmail));
+            const ccPrefix = wasCcd ? '[CC] ' : '';
             addNotification({
               type: 'new_message',
-              title: 'New message received',
+              title: wasCcd ? "CC'd on a reply" : 'New message received',
               description: lead
-                ? `${lead.first_name} ${lead.last_name}: ${(newMsg.subject || newMsg.content).substring(0, 60)}`
-                : `New inbound email: ${(newMsg.subject || newMsg.content).substring(0, 60)}`,
+                ? `${ccPrefix}${lead.first_name} ${lead.last_name}: ${(newMsg.subject || newMsg.content).substring(0, 60)}`
+                : `${ccPrefix}New inbound email: ${(newMsg.subject || newMsg.content).substring(0, 60)}`,
               navigateTo: 'contact',
               leadId: newMsg.lead_id,
             });
@@ -351,7 +358,7 @@ const App: React.FC = () => {
           />
         );
       case 'contact':
-        return <ContactView leads={leads} messages={messages} onSendMessage={handleSendMessage} onMarkAsRead={handleMarkAsRead} onLeadCreated={handleLeadCreated} onMessageLinked={handleMessageLinked} />;
+        return <ContactView leads={leads} prospects={prospects} messages={messages} onSendMessage={handleSendMessage} onMarkAsRead={handleMarkAsRead} onLeadCreated={handleLeadCreated} onMessageLinked={handleMessageLinked} onProspectConverted={(leadId) => { leadService.getLeads().then(setLeads); prospectService.getAll().then(setProspects); }} />;
       case 'calendar':
         return <CalendarView meetings={meetings} leads={leads} messages={messages} />;
       case 'deep-research':

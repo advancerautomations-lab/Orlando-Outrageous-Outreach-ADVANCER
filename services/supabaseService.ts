@@ -136,9 +136,15 @@ export const mapDbToMessage = (db: any): Message => ({
   timestamp: db.timestamp || db.sent_at || db.created_at,  // Handle all timestamp fields
   is_read: db.is_read ?? true,
   gmail_thread_id: db.gmail_thread_id || undefined,
+  gmail_message_id: db.gmail_message_id || undefined,
+  rfc_message_id: db.rfc_message_id || undefined,
+  cc_thread_ids: db.cc_thread_ids || undefined,
   user_id: db.user_id || undefined,
   sender_name: db.sender_name || undefined,
   sender_email: db.sender_email || undefined,
+  cc_emails: db.cc_emails || undefined,
+  to_emails: db.to_emails || undefined,
+  prospect_id: db.prospect_id || undefined,
 });
 
 export const messageService = {

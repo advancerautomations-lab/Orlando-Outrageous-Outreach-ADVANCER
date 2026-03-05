@@ -513,9 +513,9 @@ const CampaignListView: React.FC<{ onCreateNew: () => void }> = ({ onCreateNew }
                       className="w-full px-3.5 py-2.5 bg-white/60 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-black/5 focus:border-black/10 transition-all cursor-pointer"
                     >
                       <option value="draft">Draft</option>
-                      <option value="live">Live</option>
+                      <option value="active">Active</option>
                       <option value="paused">Paused</option>
-                      <option value="cancelled">Cancelled</option>
+                      <option value="completed">Completed</option>
                     </select>
                   </div>
 

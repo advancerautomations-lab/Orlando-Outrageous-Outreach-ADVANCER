@@ -36,13 +36,17 @@ function createEmailWithAttachments(
     to: string,
     subject: string,
     htmlBody: string,
-    attachments?: { filename: string; mimeType: string; content: string }[]
+    attachments?: { filename: string; mimeType: string; content: string }[],
+    ccList?: string[],
+    inReplyToMsgId?: string
 ): string {
     const boundary = `boundary_${Date.now()}_${Math.random().toString(36).substring(2)}`
 
     const parts = [
         `To: ${to}`,
+        ...(ccList && ccList.length > 0 ? [`Cc: ${ccList.join(', ')}`] : []),
         `Subject: ${subject}`,
+        ...(inReplyToMsgId ? [`In-Reply-To: ${inReplyToMsgId}`, `References: ${inReplyToMsgId}`] : []),
         'MIME-Version: 1.0',
         `Content-Type: multipart/mixed; boundary="${boundary}"`,
         '',
@@ -73,13 +77,15 @@ function createEmailWithAttachments(
     return parts.join('\r\n')
 }
 
+
 serve(async (req) => {
     if (req.method === 'OPTIONS') {
         return new Response('ok', { headers: corsHeaders })
     }
 
     try {
-        const { userId, leadId, to, subject, body, attachments, threadId } = await req.json()
+        const { userId, leadId, prospectId, to, cc, subject, body, attachments, threadId, inReplyToMsgId } = await req.json()
+        const ccList: string[] = Array.isArray(cc) ? cc.filter(Boolean) : []
 
         // Initialize Supabase client
         const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -142,8 +148,8 @@ serve(async (req) => {
 
         let emailRaw: string
         if (attachments && attachments.length > 0) {
-            // Build multipart MIME with attachments
-            const rawEmail = createEmailWithAttachments(to, subject, htmlBody, attachments)
+            // Build multipart MIME with attachments (includes In-Reply-To if provided)
+            const rawEmail = createEmailWithAttachments(to, subject, htmlBody, attachments, ccList, inReplyToMsgId || undefined)
             emailRaw = btoa(unescape(encodeURIComponent(rawEmail)))
                 .replace(/\+/g, '-')
                 .replace(/\//g, '_')
@@ -152,7 +158,10 @@ serve(async (req) => {
             // Simple email without attachments
             const emailParts = [
                 `To: ${to}`,
+                ...(ccList.length > 0 ? [`Cc: ${ccList.join(', ')}`] : []),
                 `Subject: ${subject}`,
+                // Include In-Reply-To/References for cross-account thread continuation
+                ...(inReplyToMsgId ? [`In-Reply-To: ${inReplyToMsgId}`, `References: ${inReplyToMsgId}`] : []),
                 'MIME-Version: 1.0',
                 'Content-Type: text/html; charset=utf-8',
                 '',
@@ -170,6 +179,8 @@ serve(async (req) => {
             sendPayload.threadId = threadId
         }
 
+        console.log('[SEND] threadId received:', threadId, '| subject:', subject, '| inReplyToMsgId:', inReplyToMsgId)
+
         const sendResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
             method: 'POST',
             headers: {
@@ -180,9 +191,31 @@ serve(async (req) => {
         })
 
         const sendData = await sendResponse.json()
+        console.log('[SEND] Gmail API response threadId:', sendData.threadId, '| sent threadId:', threadId, '| match:', sendData.threadId === threadId)
         if (sendData.error) throw new Error(sendData.error.message)
 
+        // Fetch the RFC 2822 Message-ID header from the sent message.
+        // This is the standard email header (e.g. <CABcdef@mail.gmail.com>) that travels
+        // with the email to the recipient. We store it so subsequent replies can set
+        // In-Reply-To correctly, causing the lead's email client to thread the conversation.
+        let rfcMessageId: string | null = null
+        try {
+            const msgRes = await fetch(
+                `https://gmail.googleapis.com/gmail/v1/users/me/messages/${sendData.id}?format=metadata&metadataHeaders=Message-ID`,
+                { headers: { 'Authorization': `Bearer ${accessToken}` } }
+            )
+            const msgData = await msgRes.json()
+            const msgIdHeader = msgData.payload?.headers?.find((h: any) => h.name.toLowerCase() === 'message-id')
+            rfcMessageId = msgIdHeader?.value || null
+            console.log('[SEND] RFC Message-ID fetched:', rfcMessageId)
+        } catch (e) {
+            console.error('[SEND] Failed to fetch RFC Message-ID (non-fatal):', e)
+        }
+
         // Log to messages table (DB columns: body, sent_at — NOT content/timestamp)
+        // gmail_message_id stores the RFC 2822 Message-ID so:
+        //   1. The webhook can match CC'd copies using gmailApiId (sendData.id stored separately)
+        //   2. The frontend can pass it as In-Reply-To for subsequent replies
         const messageRow: Record<string, any> = {
             user_id: userId,
             subject,
@@ -191,10 +224,15 @@ serve(async (req) => {
             sent_at: new Date().toISOString(),
             is_read: true,
             gmail_thread_id: sendData.threadId || null,
+            gmail_message_id: sendData.id || null,         // Gmail API ID — used by webhook for cc_thread_ids matching
+            rfc_message_id: rfcMessageId || null,           // RFC 2822 Message-ID — used for In-Reply-To threading
             sender_name: userData?.full_name || null,
             sender_email: userData?.email || null,
+            to_emails: [to],
+            cc_emails: ccList.length > 0 ? ccList : null,
         }
         if (leadId) messageRow.lead_id = leadId
+        if (prospectId) messageRow.prospect_id = prospectId
         const { error: insertError } = await supabase.from('messages').insert(messageRow)
 
         if (insertError) {

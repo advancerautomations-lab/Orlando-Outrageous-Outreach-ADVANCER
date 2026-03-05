@@ -1,0 +1,5 @@
+[functions.gmail-send]
+verify_jwt = false
+
+[functions.gmail-webhook]
+verify_jwt = false

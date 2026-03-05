@@ -94,8 +94,17 @@ CREATE TABLE IF NOT EXISTS public.messages (
     gmail_thread_id TEXT,
     sender_name TEXT,
     sender_email TEXT,
+    cc_emails TEXT[],
+    to_emails TEXT[],
+    prospect_id UUID REFERENCES public.prospects(id) ON DELETE SET NULL,
+    gmail_message_id TEXT,
+    rfc_message_id TEXT,
+    cc_thread_ids JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT now()
 );
+-- Partial unique index: prevents duplicate inbound messages when multiple CC'd users' webhooks fire
+-- NULL values are excluded so rows without a gmail_message_id don't conflict
+CREATE UNIQUE INDEX IF NOT EXISTS messages_gmail_message_id_key ON public.messages (gmail_message_id) WHERE gmail_message_id IS NOT NULL;
 
 -- 5. MEETINGS (calendar events)
 CREATE TABLE IF NOT EXISTS public.meetings (
