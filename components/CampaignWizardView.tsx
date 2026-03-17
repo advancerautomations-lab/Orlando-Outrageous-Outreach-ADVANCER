@@ -88,7 +88,7 @@ const AddProspectsModal: React.FC<{
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [industryFilter, setIndustryFilter] = useState('');
+  const [industryFilter, setIndustryFilter] = useState(campaign.industry || '');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set<string>());
 
   useEffect(() => {
@@ -101,7 +101,7 @@ const AddProspectsModal: React.FC<{
       // Mark prospects already in THIS campaign
       const alreadyIn = new Set(
         allRecipients
-          .filter(r => r.campaign_id === campaign.id && r.prospect_id)
+          .filter(r => r.prospect_id)
           .map(r => r.prospect_id as string)
       );
       setExistingProspectIds(alreadyIn);
@@ -130,7 +130,7 @@ const AddProspectsModal: React.FC<{
         ) return false;
       }
       return true;
-    });
+    }).sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }, [prospects, existingProspectIds, industryFilter, searchQuery]);
 
   const toggleSelect = (id: string) => {
@@ -265,7 +265,7 @@ const AddProspectsModal: React.FC<{
               <UserPlus size={32} className="opacity-30" />
               <p className="text-sm">
                 {prospects.length === existingProspectIds.size
-                  ? 'All prospects are already in this campaign'
+                  ? 'All prospects are already enrolled in campaigns'
                   : 'No prospects match your filters'}
               </p>
             </div>
@@ -296,6 +296,9 @@ const AddProspectsModal: React.FC<{
                         {prospect.email}
                         {prospect.company_name && <span className="text-gray-400"> · {prospect.company_name}</span>}
                       </p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">
+                        Added {new Date(prospect.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
                     </div>
                     {prospect.industry && (
                       <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 flex-shrink-0 hidden sm:block">
@@ -313,7 +316,7 @@ const AddProspectsModal: React.FC<{
         {existingProspectIds.size > 0 && (
           <div className="px-6 py-2 border-t border-gray-50">
             <p className="text-[11px] text-gray-400">
-              {existingProspectIds.size} prospect{existingProspectIds.size !== 1 ? 's are' : ' is'} already in this campaign and hidden from the list.
+              {existingProspectIds.size} prospect{existingProspectIds.size !== 1 ? 's are' : ' is'} already enrolled in campaigns and hidden from the list.
             </p>
           </div>
         )}

@@ -147,6 +147,7 @@ export interface EmailCampaignRecipient {
   replied_at?: string;
   bounced_at?: string;
   unsubscribed_at?: string;
+  unsubscribe_reason?: string;
   open_count?: number;
   click_count?: number;
   created_at: string;

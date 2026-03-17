@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Prospect, EmailCampaignRecipient } from '../../types';
+import { Prospect, EmailCampaignRecipient, EmailCampaign, EmailToCampaign } from '../../types';
 import { prospectService, emailCampaignService } from '../../services/supabaseService';
-import { Factory, Eye, MousePointerClick, MessageSquare, Users, TrendingUp, ChevronDown, ChevronUp, Award } from 'lucide-react';
+import { Factory, Eye, MousePointerClick, MessageSquare, Users, TrendingUp, ChevronDown, ChevronUp, Award, UserMinus } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { SkeletonCards } from './SkeletonLoader';
 
@@ -14,6 +14,7 @@ interface IndustryData {
   totalClicked: number;
   totalReplied: number;
   totalBounced: number;
+  totalUnsubscribed: number;
   convertedLeads: number;
 }
 
@@ -22,6 +23,8 @@ const DONUT_COLORS = ['#522B47', '#FBEA74', '#22C55E', '#3B82F6', '#F97316', '#8
 const IndustryAnalyticsTab: React.FC = () => {
   const [prospects, setProspects] = useState<Prospect[]>([]);
   const [allRecipients, setAllRecipients] = useState<EmailCampaignRecipient[]>([]);
+  const [campaigns, setCampaigns] = useState<EmailCampaign[]>([]);
+  const [allEmails, setAllEmails] = useState<EmailToCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIndustry, setExpandedIndustry] = useState<string | null>(null);
 
@@ -30,21 +33,38 @@ const IndustryAnalyticsTab: React.FC = () => {
     Promise.all([
       prospectService.getAll(),
       emailCampaignService.getAllRecipients(),
+      emailCampaignService.getAll(),
     ])
-      .then(([pros, recipients]) => {
+      .then(async ([pros, recipients, camps]) => {
         setProspects(pros);
         setAllRecipients(recipients);
+        setCampaigns(camps);
+        // Fetch emails for all campaigns to get email names
+        const emailArrays = await Promise.all(camps.map(c => emailCampaignService.getEmails(c.id)));
+        setAllEmails(emailArrays.flat());
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
-  // --- Build prospect lookup ---
+  // --- Lookups ---
   const prospectById = useMemo(() => {
     const map = new Map<string, Prospect>();
     for (const p of prospects) map.set(p.id, p);
     return map;
   }, [prospects]);
+
+  const campaignById = useMemo(() => {
+    const map = new Map<string, EmailCampaign>();
+    for (const c of campaigns) map.set(c.id, c);
+    return map;
+  }, [campaigns]);
+
+  const emailById = useMemo(() => {
+    const map = new Map<string, EmailToCampaign>();
+    for (const e of allEmails) map.set(e.id, e);
+    return map;
+  }, [allEmails]);
 
   // --- Core computation: group everything by industry ---
   const industryMap = useMemo<Map<string, IndustryData>>(() => {
@@ -53,13 +73,12 @@ const IndustryAnalyticsTab: React.FC = () => {
     const getOrCreate = (ind: string): IndustryData => {
       let d = map.get(ind);
       if (!d) {
-        d = { industry: ind, totalProspects: 0, totalSent: 0, totalDelivered: 0, totalOpened: 0, totalClicked: 0, totalReplied: 0, totalBounced: 0, convertedLeads: 0 };
+        d = { industry: ind, totalProspects: 0, totalSent: 0, totalDelivered: 0, totalOpened: 0, totalClicked: 0, totalReplied: 0, totalBounced: 0, totalUnsubscribed: 0, convertedLeads: 0 };
         map.set(ind, d);
       }
       return d;
     };
 
-    // Count prospects per industry
     for (const p of prospects) {
       const ind = p.industry || 'Unknown';
       const d = getOrCreate(ind);
@@ -67,7 +86,6 @@ const IndustryAnalyticsTab: React.FC = () => {
       if (p.converted_to_lead_id) d.convertedLeads++;
     }
 
-    // Accumulate engagement from recipients
     for (const r of allRecipients) {
       const prospect = r.prospect_id ? prospectById.get(r.prospect_id) : null;
       const ind = prospect?.industry || 'Unknown';
@@ -78,6 +96,7 @@ const IndustryAnalyticsTab: React.FC = () => {
       if (r.clicked_at) d.totalClicked++;
       if (r.replied_at) d.totalReplied++;
       if (r.bounced_at) d.totalBounced++;
+      if (r.unsubscribed_at) d.totalUnsubscribed++;
     }
 
     return map;
@@ -92,6 +111,19 @@ const IndustryAnalyticsTab: React.FC = () => {
       return b.totalSent - a.totalSent;
     });
   }, [industryMap]);
+
+  // --- All unsubscribed recipients across all campaigns ---
+  const unsubscribedList = useMemo(() => {
+    return allRecipients
+      .filter(r => r.unsubscribed_at)
+      .map(r => ({
+        recipient: r,
+        prospect: r.prospect_id ? prospectById.get(r.prospect_id) : undefined,
+        campaign: campaignById.get(r.campaign_id),
+        email: r.email_to_campaign_id ? emailById.get(r.email_to_campaign_id) : undefined,
+      }))
+      .sort((a, b) => new Date(b.recipient.unsubscribed_at!).getTime() - new Date(a.recipient.unsubscribed_at!).getTime());
+  }, [allRecipients, prospectById, campaignById, emailById]);
 
   // --- Helpers ---
   const getRateValue = (numerator: number, denominator: number): number => {
@@ -111,8 +143,8 @@ const IndustryAnalyticsTab: React.FC = () => {
     const totalProspectsWithIndustry = knownIndustries.reduce((sum, d) => sum + d.totalProspects, 0);
     const totalConversions = industryList.reduce((sum, d) => sum + d.convertedLeads, 0);
     const totalProspects = industryList.reduce((sum, d) => sum + d.totalProspects, 0);
+    const totalUnsubscribed = unsubscribedList.length;
 
-    // Best performing by open rate (min 5 sent to be meaningful)
     const withVolume = knownIndustries.filter(d => d.totalSent >= 5);
     const bestOpenRate = withVolume.length > 0
       ? withVolume.reduce((best, d) => getRateValue(d.totalOpened, d.totalSent) > getRateValue(best.totalOpened, best.totalSent) ? d : best)
@@ -122,8 +154,8 @@ const IndustryAnalyticsTab: React.FC = () => {
       ? withVolume.reduce((best, d) => getRateValue(d.totalReplied, d.totalSent) > getRateValue(best.totalReplied, best.totalSent) ? d : best)
       : null;
 
-    return { totalIndustries, totalProspectsWithIndustry, totalConversions, totalProspects, bestOpenRate, bestReplyRate };
-  }, [industryList]);
+    return { totalIndustries, totalProspectsWithIndustry, totalConversions, totalProspects, totalUnsubscribed, bestOpenRate, bestReplyRate };
+  }, [industryList, unsubscribedList]);
 
   // --- Bar chart data (top 10 by volume) ---
   const barChartData = useMemo(() => {
@@ -155,17 +187,18 @@ const IndustryAnalyticsTab: React.FC = () => {
   // --- Drill-down: prospects for selected industry ---
   const expandedProspects = useMemo(() => {
     if (!expandedIndustry) return [];
-    const recipientsByProspect = new Map<string, { sent: number; opened: number; clicked: number; replied: boolean; bounced: boolean }>();
+    const recipientsByProspect = new Map<string, { sent: number; opened: number; clicked: number; replied: boolean; bounced: boolean; unsubscribed: boolean }>();
     for (const r of allRecipients) {
       if (!r.prospect_id) continue;
       const prospect = prospectById.get(r.prospect_id);
       if ((prospect?.industry || 'Unknown') !== expandedIndustry) continue;
-      const existing = recipientsByProspect.get(r.prospect_id) || { sent: 0, opened: 0, clicked: 0, replied: false, bounced: false };
+      const existing = recipientsByProspect.get(r.prospect_id) || { sent: 0, opened: 0, clicked: 0, replied: false, bounced: false, unsubscribed: false };
       if (r.sent_at) existing.sent++;
       if (r.first_opened_at || r.opened_at) existing.opened++;
       if (r.clicked_at) existing.clicked++;
       if (r.replied_at) existing.replied = true;
       if (r.bounced_at) existing.bounced = true;
+      if (r.unsubscribed_at) existing.unsubscribed = true;
       recipientsByProspect.set(r.prospect_id, existing);
     }
 
@@ -173,7 +206,7 @@ const IndustryAnalyticsTab: React.FC = () => {
       .filter(p => (p.industry || 'Unknown') === expandedIndustry)
       .map(p => ({
         prospect: p,
-        engagement: recipientsByProspect.get(p.id) || { sent: 0, opened: 0, clicked: 0, replied: false, bounced: false },
+        engagement: recipientsByProspect.get(p.id) || { sent: 0, opened: 0, clicked: 0, replied: false, bounced: false, unsubscribed: false },
       }))
       .sort((a, b) => b.engagement.sent - a.engagement.sent);
   }, [expandedIndustry, prospects, allRecipients, prospectById]);
@@ -217,7 +250,7 @@ const IndustryAnalyticsTab: React.FC = () => {
   return (
     <div className="h-full overflow-auto animate-fade-in">
       {/* Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <StatCard
           label="Industries"
           value={summaryStats.totalIndustries.toString()}
@@ -252,6 +285,13 @@ const IndustryAnalyticsTab: React.FC = () => {
           subtext={`${formatRate(summaryStats.totalConversions, summaryStats.totalProspects)} conversion rate`}
           icon={TrendingUp}
           borderColor={summaryStats.totalConversions > 0 ? 'border-green-400' : 'border-gray-200'}
+        />
+        <StatCard
+          label="Unsubscribed"
+          value={summaryStats.totalUnsubscribed.toLocaleString()}
+          subtext={`${formatRate(summaryStats.totalUnsubscribed, allRecipients.filter(r => r.sent_at).length)} unsub rate`}
+          icon={UserMinus}
+          borderColor={summaryStats.totalUnsubscribed > 0 ? 'border-orange-400' : 'border-gray-200'}
         />
       </div>
 
@@ -301,7 +341,6 @@ const IndustryAnalyticsTab: React.FC = () => {
               No email data to display yet
             </div>
           )}
-          {/* Legend */}
           <div className="flex items-center justify-center gap-6 mt-3">
             {[
               { label: 'Open Rate', color: '#522B47' },
@@ -346,13 +385,11 @@ const IndustryAnalyticsTab: React.FC = () => {
                     />
                   </PieChart>
                 </ResponsiveContainer>
-                {/* Center overlay */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                   <span className="text-2xl font-bold font-serif">{totalConversions}</span>
                   <span className="text-[10px] text-gray-500 uppercase tracking-wide">Conversions</span>
                 </div>
               </div>
-              {/* Legend */}
               <div className="flex flex-wrap justify-center gap-3 mt-2">
                 {conversionDonutData.map((item) => (
                   <div key={item.name} className="flex items-center gap-1.5">
@@ -371,7 +408,7 @@ const IndustryAnalyticsTab: React.FC = () => {
       </div>
 
       {/* Industry Breakdown Table */}
-      <div className="glass-card rounded-2xl flex-1 overflow-hidden flex flex-col">
+      <div className="glass-card rounded-2xl flex-1 overflow-hidden flex flex-col mb-6">
         <div className="px-6 py-4 border-b border-gray-100">
           <h3 className="font-serif font-bold text-lg">Industry Breakdown</h3>
         </div>
@@ -387,6 +424,7 @@ const IndustryAnalyticsTab: React.FC = () => {
                 <th scope="col" className="text-right py-3 px-4 font-semibold text-gray-600">Click Rate</th>
                 <th scope="col" className="text-right py-3 px-4 font-semibold text-gray-600">Reply Rate</th>
                 <th scope="col" className="text-right py-3 px-4 font-semibold text-gray-600">Bounce Rate</th>
+                <th scope="col" className="text-right py-3 px-4 font-semibold text-gray-600">Unsub Rate</th>
                 <th scope="col" className="text-right py-3 px-4 font-semibold text-gray-600">Conversions</th>
                 <th scope="col" className="w-10 py-3 px-2"><span className="sr-only">Expand</span></th>
               </tr>
@@ -398,6 +436,7 @@ const IndustryAnalyticsTab: React.FC = () => {
                 const clickRate = getRateValue(row.totalClicked, row.totalSent);
                 const replyRate = getRateValue(row.totalReplied, row.totalSent);
                 const bounceRate = getRateValue(row.totalBounced, row.totalSent);
+                const unsubRate = getRateValue(row.totalUnsubscribed, row.totalSent);
 
                 return (
                   <React.Fragment key={row.industry}>
@@ -441,6 +480,16 @@ const IndustryAnalyticsTab: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-3 px-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-14 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-orange-400 rounded-full" style={{ width: `${Math.min((unsubRate / 10) * 100, 100)}%` }} />
+                          </div>
+                          <span className={`font-medium w-12 text-right ${row.totalUnsubscribed > 0 ? 'text-orange-600' : 'text-gray-900'}`}>
+                            {unsubRate.toFixed(1)}%
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-right">
                         <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                           row.convertedLeads > 0 ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
                         }`}>
@@ -458,7 +507,7 @@ const IndustryAnalyticsTab: React.FC = () => {
                     {/* Expanded detail panel */}
                     {isExpanded && (
                       <tr>
-                        <td colSpan={9} className="p-0">
+                        <td colSpan={10} className="p-0">
                           <div className="bg-gray-50/80 px-6 py-4 border-b border-gray-100">
                             {/* Industry detail stat pills */}
                             <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -475,6 +524,13 @@ const IndustryAnalyticsTab: React.FC = () => {
                                   <span className="font-semibold text-gray-900">{pill.value}</span>
                                 </div>
                               ))}
+                              {row.totalUnsubscribed > 0 && (
+                                <div className="flex items-center gap-1.5 bg-orange-50 rounded-full px-3 py-1.5 text-xs border border-orange-100">
+                                  <UserMinus size={11} className="text-orange-500" />
+                                  <span className="text-orange-500">Unsubscribed:</span>
+                                  <span className="font-semibold text-orange-700">{row.totalUnsubscribed}</span>
+                                </div>
+                              )}
                             </div>
 
                             {/* Prospect list */}
@@ -489,6 +545,7 @@ const IndustryAnalyticsTab: React.FC = () => {
                                       <th className="text-right py-2 px-3 font-semibold text-gray-500">Opened</th>
                                       <th className="text-right py-2 px-3 font-semibold text-gray-500">Clicked</th>
                                       <th className="text-center py-2 px-3 font-semibold text-gray-500">Replied</th>
+                                      <th className="text-center py-2 px-3 font-semibold text-gray-500">Unsub</th>
                                       <th className="text-center py-2 px-3 font-semibold text-gray-500">Converted</th>
                                     </tr>
                                   </thead>
@@ -503,6 +560,12 @@ const IndustryAnalyticsTab: React.FC = () => {
                                         <td className="py-2 px-3 text-center">
                                           {eng.replied
                                             ? <span className="text-green-600 font-semibold">Yes</span>
+                                            : <span className="text-gray-300">—</span>
+                                          }
+                                        </td>
+                                        <td className="py-2 px-3 text-center">
+                                          {eng.unsubscribed
+                                            ? <UserMinus size={12} className="text-orange-500 mx-auto" />
                                             : <span className="text-gray-300">—</span>
                                           }
                                         </td>
@@ -535,6 +598,101 @@ const IndustryAnalyticsTab: React.FC = () => {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Unsubscribed Recipients List */}
+      <div className="glass-card rounded-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
+          <UserMinus size={18} className="text-orange-500" aria-hidden="true" />
+          <h3 className="font-serif font-bold text-lg">Unsubscribed Recipients</h3>
+          {unsubscribedList.length > 0 && (
+            <span className="ml-auto px-2.5 py-1 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
+              {unsubscribedList.length} total
+            </span>
+          )}
+        </div>
+
+        {unsubscribedList.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-gray-400">
+            <UserMinus size={36} className="mb-3 opacity-30" aria-hidden="true" />
+            <p className="text-sm">No unsubscribes recorded yet</p>
+          </div>
+        ) : (
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <caption className="sr-only">List of recipients who unsubscribed</caption>
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/50 sticky top-0 z-10">
+                  <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Prospect</th>
+                  <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Email</th>
+                  <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Campaign</th>
+                  <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Email in Sequence</th>
+                  <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Reason</th>
+                  <th scope="col" className="text-left py-3 px-4 font-semibold text-gray-600">Unsubscribed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unsubscribedList.map(({ recipient, prospect, campaign, email }) => (
+                  <tr key={recipient.id} className="border-b border-gray-50 hover:bg-white/60 transition-colors">
+                    <td className="py-3 px-4">
+                      {prospect ? (
+                        <>
+                          <p className="font-medium text-gray-900">{prospect.first_name} {prospect.last_name}</p>
+                          {prospect.company_name && (
+                            <p className="text-xs text-gray-400">{prospect.company_name}</p>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">Unknown prospect</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-gray-500 text-xs">{prospect?.email || '—'}</td>
+                    <td className="py-3 px-4">
+                      {campaign ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-800 font-medium">{campaign.name}</span>
+                          {campaign.status && (
+                            <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                              campaign.status === 'active' || campaign.status === 'sending' ? 'bg-green-100 text-green-700' :
+                              campaign.status === 'paused' ? 'bg-orange-100 text-orange-600' :
+                              'bg-gray-100 text-gray-500'
+                            }`}>
+                              {campaign.status}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">Unknown campaign</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {email ? (
+                        <div>
+                          <p className="text-gray-800 font-medium">{email.name || `Email ${email.order ?? '?'}`}</p>
+                          {email.subject && (
+                            <p className="text-xs text-gray-400 truncate max-w-[200px]">{email.subject}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400 text-xs italic">—</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 max-w-[240px]">
+                      {recipient.unsubscribe_reason ? (
+                        <p className="text-xs text-gray-600 leading-relaxed">{recipient.unsubscribe_reason}</p>
+                      ) : (
+                        <span className="text-gray-300 text-xs italic">No reason provided</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-4 text-xs text-orange-600 whitespace-nowrap">
+                      {new Date(recipient.unsubscribed_at!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

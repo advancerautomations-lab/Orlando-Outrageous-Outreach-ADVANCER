@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { EmailCampaign, EmailToCampaign, EmailCampaignRecipient, Prospect } from '../../types';
 import { emailCampaignService, prospectService } from '../../services/supabaseService';
-import { Mail, Send, Eye, MousePointerClick, MessageSquare, AlertTriangle, Users, ChevronRight, ChevronDown, ExternalLink, Check, Minus } from 'lucide-react';
+import { Mail, Send, Eye, MousePointerClick, MessageSquare, AlertTriangle, Users, ChevronRight, ChevronDown, ExternalLink, Check, Minus, UserMinus } from 'lucide-react';
 import { SkeletonPipeline } from './SkeletonLoader';
 import FunnelChart from './FunnelChart';
 
@@ -69,6 +69,7 @@ const OutreachStageTab: React.FC<Props> = ({ initialCampaignId }) => {
       clicked: matching.filter(r => r.clicked_at).length,
       bounced: matching.filter(r => r.bounced_at).length,
       replied: matching.filter(r => r.replied_at).length,
+      unsubscribed: matching.filter(r => r.unsubscribed_at).length,
       total: matching.length,
       recipients: matching,
     };
@@ -283,6 +284,16 @@ const OutreachStageTab: React.FC<Props> = ({ initialCampaignId }) => {
                                   <MicroBar value={stats.bounced} max={stats.sent} color="bg-red-400" />
                                 </div>
                               )}
+                              {stats.unsubscribed > 0 && (
+                                <div className="flex items-center gap-3">
+                                  <div className="flex items-center gap-1.5 w-20 flex-shrink-0">
+                                    <UserMinus size={11} className="text-orange-400" aria-hidden="true" />
+                                    <span className="text-xs text-orange-600 font-medium">{stats.unsubscribed}</span>
+                                    <span className="text-[10px] text-orange-400">unsub</span>
+                                  </div>
+                                  <MicroBar value={stats.unsubscribed} max={stats.sent} color="bg-orange-400" />
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -290,68 +301,123 @@ const OutreachStageTab: React.FC<Props> = ({ initialCampaignId }) => {
                         {/* Expanded: Prospects currently at this email step */}
                         {isEmailExpanded && (() => {
                           const currentProspects = getProspectsCurrentlyAtEmail(email.id);
-                          return currentProspects.length > 0 ? (
-                            <div className="mt-2 bg-gray-50 rounded-xl border border-gray-100 overflow-hidden animate-slide-up">
-                              <div className="px-4 py-2 border-b border-gray-100 bg-gray-100/50">
-                                <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
-                                  Currently at this step ({currentProspects.length})
-                                </span>
-                              </div>
-                              <div className="max-h-64 overflow-auto">
-                                <table className="w-full text-xs">
-                                  <caption className="sr-only">Prospects currently at {email.name || email.subject}</caption>
-                                  <thead>
-                                    <tr className="border-b border-gray-100">
-                                      <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-500">Prospect</th>
-                                      <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Delivered</th>
-                                      <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Opened</th>
-                                      <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Clicked</th>
-                                      <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Replied</th>
-                                      <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Bounced</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {currentProspects.map(prospect => {
-                                      const r = recipientByProspectAndEmail.get(`${prospect.id}:${email.id}`);
-                                      return (
-                                        <tr key={prospect.id} className="border-b border-gray-50 hover:bg-white/60">
-                                          <td className="py-2 px-3">
-                                            <p className="font-medium text-gray-700">
-                                              {prospect.first_name} {prospect.last_name}
-                                            </p>
-                                            {prospect.company_name && (
-                                              <p className="text-[10px] text-gray-400">{prospect.company_name}</p>
-                                            )}
-                                          </td>
-                                          <td className="py-2 px-2 text-center">
-                                            {r?.delivered_at ? <Check size={12} className="text-green-500 mx-auto" /> : <Minus size={12} className="text-gray-300 mx-auto" />}
-                                          </td>
-                                          <td className="py-2 px-2 text-center">
-                                            {r?.opened_at ? (
-                                              <span className="text-blue-600 font-medium">{r.open_count || 1}x</span>
-                                            ) : (
-                                              <Minus size={12} className="text-gray-300 mx-auto" />
-                                            )}
-                                          </td>
-                                          <td className="py-2 px-2 text-center">
-                                            {r?.clicked_at ? (
-                                              <span className="text-green-600 font-medium">{r.click_count || 1}x</span>
-                                            ) : (
-                                              <Minus size={12} className="text-gray-300 mx-auto" />
-                                            )}
-                                          </td>
-                                          <td className="py-2 px-2 text-center">
-                                            {r?.replied_at ? <Check size={12} className="text-green-500 mx-auto" /> : <Minus size={12} className="text-gray-300 mx-auto" />}
-                                          </td>
-                                          <td className="py-2 px-2 text-center">
-                                            {r?.bounced_at ? <AlertTriangle size={12} className="text-red-500 mx-auto" /> : <Minus size={12} className="text-gray-300 mx-auto" />}
-                                          </td>
+                          const unsubscribedRecipients = stats.recipients.filter(r => r.unsubscribed_at);
+                          const unsubscribedProspects = unsubscribedRecipients.map(r => ({
+                            recipient: r,
+                            prospect: prospects.find(p => p.id === r.prospect_id),
+                          })).filter(x => x.prospect);
+
+                          return currentProspects.length > 0 || unsubscribedProspects.length > 0 ? (
+                            <div className="mt-2 space-y-2 animate-slide-up">
+                              {currentProspects.length > 0 && (
+                                <div className="bg-gray-50 rounded-xl border border-gray-100 overflow-hidden">
+                                  <div className="px-4 py-2 border-b border-gray-100 bg-gray-100/50">
+                                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">
+                                      Currently at this step ({currentProspects.length})
+                                    </span>
+                                  </div>
+                                  <div className="max-h-64 overflow-auto">
+                                    <table className="w-full text-xs">
+                                      <caption className="sr-only">Prospects currently at {email.name || email.subject}</caption>
+                                      <thead>
+                                        <tr className="border-b border-gray-100">
+                                          <th scope="col" className="text-left py-2 px-3 font-semibold text-gray-500">Prospect</th>
+                                          <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Delivered</th>
+                                          <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Opened</th>
+                                          <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Clicked</th>
+                                          <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Replied</th>
+                                          <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Bounced</th>
+                                          <th scope="col" className="text-center py-2 px-2 font-semibold text-gray-500">Unsub</th>
                                         </tr>
-                                      );
-                                    })}
-                                  </tbody>
-                                </table>
-                              </div>
+                                      </thead>
+                                      <tbody>
+                                        {currentProspects.map(prospect => {
+                                          const r = recipientByProspectAndEmail.get(`${prospect.id}:${email.id}`);
+                                          return (
+                                            <tr key={prospect.id} className="border-b border-gray-50 hover:bg-white/60">
+                                              <td className="py-2 px-3">
+                                                <p className="font-medium text-gray-700">
+                                                  {prospect.first_name} {prospect.last_name}
+                                                </p>
+                                                {prospect.company_name && (
+                                                  <p className="text-[10px] text-gray-400">{prospect.company_name}</p>
+                                                )}
+                                              </td>
+                                              <td className="py-2 px-2 text-center">
+                                                {r?.delivered_at ? <Check size={12} className="text-green-500 mx-auto" /> : <Minus size={12} className="text-gray-300 mx-auto" />}
+                                              </td>
+                                              <td className="py-2 px-2 text-center">
+                                                {r?.opened_at ? (
+                                                  <span className="text-blue-600 font-medium">{r.open_count || 1}x</span>
+                                                ) : (
+                                                  <Minus size={12} className="text-gray-300 mx-auto" />
+                                                )}
+                                              </td>
+                                              <td className="py-2 px-2 text-center">
+                                                {r?.clicked_at ? (
+                                                  <span className="text-green-600 font-medium">{r.click_count || 1}x</span>
+                                                ) : (
+                                                  <Minus size={12} className="text-gray-300 mx-auto" />
+                                                )}
+                                              </td>
+                                              <td className="py-2 px-2 text-center">
+                                                {r?.replied_at ? <Check size={12} className="text-green-500 mx-auto" /> : <Minus size={12} className="text-gray-300 mx-auto" />}
+                                              </td>
+                                              <td className="py-2 px-2 text-center">
+                                                {r?.bounced_at ? <AlertTriangle size={12} className="text-red-500 mx-auto" /> : <Minus size={12} className="text-gray-300 mx-auto" />}
+                                              </td>
+                                              <td className="py-2 px-2 text-center">
+                                                {r?.unsubscribed_at ? <UserMinus size={12} className="text-orange-500 mx-auto" title={`Unsubscribed: ${new Date(r.unsubscribed_at).toLocaleDateString()}`} /> : <Minus size={12} className="text-gray-300 mx-auto" />}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
+
+                              {unsubscribedProspects.length > 0 && (
+                                <div className="bg-orange-50 rounded-xl border border-orange-100 overflow-hidden">
+                                  <div className="px-4 py-2 border-b border-orange-100 bg-orange-100/50 flex items-center gap-2">
+                                    <UserMinus size={12} className="text-orange-500" aria-hidden="true" />
+                                    <span className="text-[10px] font-semibold text-orange-600 uppercase tracking-wider">
+                                      Unsubscribed from this email ({unsubscribedProspects.length})
+                                    </span>
+                                  </div>
+                                  <div className="max-h-48 overflow-auto">
+                                    <table className="w-full text-xs">
+                                      <caption className="sr-only">Prospects who unsubscribed at {email.name || email.subject}</caption>
+                                      <thead>
+                                        <tr className="border-b border-orange-100">
+                                          <th scope="col" className="text-left py-2 px-3 font-semibold text-orange-500">Prospect</th>
+                                          <th scope="col" className="text-left py-2 px-3 font-semibold text-orange-500">Email</th>
+                                          <th scope="col" className="text-left py-2 px-3 font-semibold text-orange-500">Unsubscribed</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {unsubscribedProspects.map(({ recipient, prospect }) => (
+                                          <tr key={recipient.id} className="border-b border-orange-50 hover:bg-white/60">
+                                            <td className="py-2 px-3">
+                                              <p className="font-medium text-gray-700">
+                                                {prospect!.first_name} {prospect!.last_name}
+                                              </p>
+                                              {prospect!.company_name && (
+                                                <p className="text-[10px] text-gray-400">{prospect!.company_name}</p>
+                                              )}
+                                            </td>
+                                            <td className="py-2 px-3 text-gray-500">{prospect!.email}</td>
+                                            <td className="py-2 px-3 text-orange-600">
+                                              {new Date(recipient.unsubscribed_at!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           ) : (
                             <div className="mt-2 bg-gray-50 rounded-xl border border-gray-100 p-4 animate-slide-up">
