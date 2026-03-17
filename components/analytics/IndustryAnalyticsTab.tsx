@@ -164,9 +164,12 @@ const IndustryAnalyticsTab: React.FC = () => {
       .slice(0, 10)
       .map(d => ({
         name: d.industry.length > 18 ? d.industry.substring(0, 18) + '...' : d.industry,
+        'Delivered': Number(getRateValue(d.totalDelivered, d.totalSent).toFixed(1)),
         'Open Rate': Number(getRateValue(d.totalOpened, d.totalSent).toFixed(1)),
         'Click Rate': Number(getRateValue(d.totalClicked, d.totalSent).toFixed(1)),
         'Reply Rate': Number(getRateValue(d.totalReplied, d.totalSent).toFixed(1)),
+        'Bounce Rate': Number(getRateValue(d.totalBounced, d.totalSent).toFixed(1)),
+        'Unsub Rate': Number(getRateValue(d.totalUnsubscribed, d.totalSent).toFixed(1)),
       }));
   }, [industryList]);
 
@@ -330,9 +333,12 @@ const IndustryAnalyticsTab: React.FC = () => {
                     cursor={{ fill: 'rgba(0,0,0,0.03)' }}
                     formatter={(value: number) => [`${value.toFixed(1)}%`]}
                   />
-                  <Bar dataKey="Open Rate" fill="#522B47" radius={[4, 4, 0, 0]} barSize={18} />
-                  <Bar dataKey="Click Rate" fill="#FBEA74" radius={[4, 4, 0, 0]} barSize={18} />
-                  <Bar dataKey="Reply Rate" fill="#22C55E" radius={[4, 4, 0, 0]} barSize={18} />
+                  <Bar dataKey="Delivered" fill="#3B82F6" radius={[4, 4, 0, 0]} barSize={12} />
+                  <Bar dataKey="Open Rate" fill="#522B47" radius={[4, 4, 0, 0]} barSize={12} />
+                  <Bar dataKey="Click Rate" fill="#FBEA74" radius={[4, 4, 0, 0]} barSize={12} />
+                  <Bar dataKey="Reply Rate" fill="#22C55E" radius={[4, 4, 0, 0]} barSize={12} />
+                  <Bar dataKey="Bounce Rate" fill="#EF4444" radius={[4, 4, 0, 0]} barSize={12} />
+                  <Bar dataKey="Unsub Rate" fill="#F97316" radius={[4, 4, 0, 0]} barSize={12} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -341,11 +347,14 @@ const IndustryAnalyticsTab: React.FC = () => {
               No email data to display yet
             </div>
           )}
-          <div className="flex items-center justify-center gap-6 mt-3">
+          <div className="flex items-center justify-center gap-4 mt-3 flex-wrap">
             {[
+              { label: 'Delivered', color: '#3B82F6' },
               { label: 'Open Rate', color: '#522B47' },
               { label: 'Click Rate', color: '#FBEA74' },
               { label: 'Reply Rate', color: '#22C55E' },
+              { label: 'Bounce Rate', color: '#EF4444' },
+              { label: 'Unsub Rate', color: '#F97316' },
             ].map(item => (
               <div key={item.label} className="flex items-center gap-1.5">
                 <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: item.color }} />

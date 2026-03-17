@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { EmailCampaign, EmailCampaignStatistics, EmailCampaignRecipient } from '../../types';
 import { emailCampaignService } from '../../services/supabaseService';
-import { Send, Eye, MousePointerClick, MessageSquare, AlertTriangle, BarChart3, ChevronRight, Info } from 'lucide-react';
+import { Send, Eye, MousePointerClick, MessageSquare, AlertTriangle, BarChart3, ChevronRight, Info, Filter } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { SkeletonCards } from './SkeletonLoader';
 
@@ -16,6 +16,7 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
   const [allStats, setAllStats] = useState<EmailCampaignStatistics[]>([]);
   const [allRecipients, setAllRecipients] = useState<EmailCampaignRecipient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>('all');
   const [includeReengagements, setIncludeReengagements] = useState(false);
   const [donutView, setDonutView] = useState<DonutView>('emails-sent');
   const [showTooltip, setShowTooltip] = useState(false);
@@ -36,47 +37,58 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
       .finally(() => setLoading(false));
   }, []);
 
+  // --- Filter recipients by selected campaign ---
+  const filteredRecipients = useMemo(() => {
+    if (selectedCampaignId === 'all') return allRecipients;
+    return allRecipients.filter(r => r.campaign_id === selectedCampaignId);
+  }, [allRecipients, selectedCampaignId]);
+
+  const filteredStats = useMemo(() => {
+    if (selectedCampaignId === 'all') return allStats;
+    return allStats.filter(s => s.campaign_id === selectedCampaignId);
+  }, [allStats, selectedCampaignId]);
+
   // --- Aggregate stats computed from individual recipients ---
 
   // Unique stats: count each recipient once using date fields
   const uniqueAggregateStats = useMemo(() => {
-    if (allRecipients.length === 0) return null;
-    const total_sent = allRecipients.filter(r => r.sent_at).length;
-    const total_delivered = allRecipients.filter(r => r.delivered_at).length;
-    const total_opened = allRecipients.filter(r => r.first_opened_at || r.opened_at).length;
-    const total_clicked = allRecipients.filter(r => r.clicked_at).length;
-    const total_replied = allRecipients.filter(r => r.replied_at).length;
-    const total_bounced = allRecipients.filter(r => r.bounced_at).length;
-    const total_unsubscribed = allRecipients.filter(r => r.unsubscribed_at).length;
+    if (filteredRecipients.length === 0) return null;
+    const total_sent = filteredRecipients.filter(r => r.sent_at).length;
+    const total_delivered = filteredRecipients.filter(r => r.delivered_at).length;
+    const total_opened = filteredRecipients.filter(r => r.first_opened_at || r.opened_at).length;
+    const total_clicked = filteredRecipients.filter(r => r.clicked_at).length;
+    const total_replied = filteredRecipients.filter(r => r.replied_at).length;
+    const total_bounced = filteredRecipients.filter(r => r.bounced_at).length;
+    const total_unsubscribed = filteredRecipients.filter(r => r.unsubscribed_at).length;
     return { total_sent, total_delivered, total_opened, total_clicked, total_replied, total_bounced, total_unsubscribed };
-  }, [allRecipients]);
+  }, [filteredRecipients]);
 
   // Re-engagement stats: sum open_count and click_count for repeat interactions
   const reengagementAggregateStats = useMemo(() => {
-    if (allRecipients.length === 0) return null;
-    const total_sent = allRecipients.filter(r => r.sent_at).length;
-    const total_delivered = allRecipients.filter(r => r.delivered_at).length;
-    const total_opened = allRecipients.reduce((sum, r) => sum + (r.open_count || 0), 0);
-    const total_clicked = allRecipients.reduce((sum, r) => sum + (r.click_count || 0), 0);
-    const total_replied = allRecipients.filter(r => r.replied_at).length;
-    const total_bounced = allRecipients.filter(r => r.bounced_at).length;
-    const total_unsubscribed = allRecipients.filter(r => r.unsubscribed_at).length;
+    if (filteredRecipients.length === 0) return null;
+    const total_sent = filteredRecipients.filter(r => r.sent_at).length;
+    const total_delivered = filteredRecipients.filter(r => r.delivered_at).length;
+    const total_opened = filteredRecipients.reduce((sum, r) => sum + (r.open_count || 0), 0);
+    const total_clicked = filteredRecipients.reduce((sum, r) => sum + (r.click_count || 0), 0);
+    const total_replied = filteredRecipients.filter(r => r.replied_at).length;
+    const total_bounced = filteredRecipients.filter(r => r.bounced_at).length;
+    const total_unsubscribed = filteredRecipients.filter(r => r.unsubscribed_at).length;
     return { total_sent, total_delivered, total_opened, total_clicked, total_replied, total_bounced, total_unsubscribed };
-  }, [allRecipients]);
+  }, [filteredRecipients]);
 
   // Fallback to email_campaign_statistics table if no recipients loaded
   const statsTableAggregate = useMemo(() => {
-    if (allStats.length === 0) return null;
+    if (filteredStats.length === 0) return null;
     return {
-      total_sent: allStats.reduce((sum, s) => sum + (s.total_sent || 0), 0),
-      total_delivered: allStats.reduce((sum, s) => sum + (s.total_delivered || 0), 0),
-      total_opened: allStats.reduce((sum, s) => sum + (s.total_opened || 0), 0),
-      total_clicked: allStats.reduce((sum, s) => sum + (s.total_clicked || 0), 0),
-      total_replied: allStats.reduce((sum, s) => sum + (s.total_replied || 0), 0),
-      total_bounced: allStats.reduce((sum, s) => sum + (s.total_bounced || 0), 0),
-      total_unsubscribed: allStats.reduce((sum, s) => sum + (s.total_unsubscribed || 0), 0),
+      total_sent: filteredStats.reduce((sum, s) => sum + (s.total_sent || 0), 0),
+      total_delivered: filteredStats.reduce((sum, s) => sum + (s.total_delivered || 0), 0),
+      total_opened: filteredStats.reduce((sum, s) => sum + (s.total_opened || 0), 0),
+      total_clicked: filteredStats.reduce((sum, s) => sum + (s.total_clicked || 0), 0),
+      total_replied: filteredStats.reduce((sum, s) => sum + (s.total_replied || 0), 0),
+      total_bounced: filteredStats.reduce((sum, s) => sum + (s.total_bounced || 0), 0),
+      total_unsubscribed: filteredStats.reduce((sum, s) => sum + (s.total_unsubscribed || 0), 0),
     };
-  }, [allStats]);
+  }, [filteredStats]);
 
   const aggregateStats = includeReengagements
     ? (reengagementAggregateStats || statsTableAggregate)
@@ -94,9 +106,9 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
 
   // --- Bar chart data (toggle-aware) ---
   const barChartData = useMemo(() => {
-    if (allRecipients.length === 0) {
+    if (filteredRecipients.length === 0) {
       // Fallback to stats table
-      return allStats.map(stat => {
+      return filteredStats.map(stat => {
         const campaign = campaigns.find(c => c.id === stat.campaign_id);
         const sent = stat.total_sent || 1;
         return {
@@ -110,7 +122,7 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
 
     // Group recipients by campaign_id
     const byCampaign = new Map<string, EmailCampaignRecipient[]>();
-    for (const r of allRecipients) {
+    for (const r of filteredRecipients) {
       const list = byCampaign.get(r.campaign_id) || [];
       list.push(r);
       byCampaign.set(r.campaign_id, list);
@@ -137,15 +149,15 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
         'Reply Rate': Number(getRateValue(replied, sent).toFixed(1)),
       };
     });
-  }, [allRecipients, allStats, campaigns, includeReengagements]);
+  }, [filteredRecipients, filteredStats, campaigns, includeReengagements]);
 
   // --- Donut A: Emails Sent (each row = one email) ---
   const { emailsSentDonutData, emailsSentTotal } = useMemo(() => {
-    if (allRecipients.length === 0) return { emailsSentDonutData: [], emailsSentTotal: 0 };
+    if (filteredRecipients.length === 0) return { emailsSentDonutData: [], emailsSentTotal: 0 };
 
     let replied = 0, clicked = 0, opened = 0, bounced = 0, noEngagement = 0;
 
-    for (const r of allRecipients) {
+    for (const r of filteredRecipients) {
       if (r.replied_at) {
         replied++;
       } else if (r.clicked_at) {
@@ -167,16 +179,16 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
       { name: 'No engagement', value: noEngagement, color: '#E5E7EB' },
     ].filter(d => d.value > 0);
 
-    return { emailsSentDonutData: data, emailsSentTotal: allRecipients.length };
-  }, [allRecipients]);
+    return { emailsSentDonutData: data, emailsSentTotal: filteredRecipients.length };
+  }, [filteredRecipients]);
 
   // --- Donut B: Recipients (deduplicated by prospect_id) ---
   const { recipientsDonutData, recipientsTotal } = useMemo(() => {
-    if (allRecipients.length === 0) return { recipientsDonutData: [], recipientsTotal: 0 };
+    if (filteredRecipients.length === 0) return { recipientsDonutData: [], recipientsTotal: 0 };
 
     // Group all rows by prospect, accumulate counts
     const prospectData = new Map<string, { maxOpenCount: number; maxClickCount: number; replied: boolean; unsubscribed: boolean; anyEngagement: boolean }>();
-    for (const r of allRecipients) {
+    for (const r of filteredRecipients) {
       const key = r.prospect_id || r.id;
       const existing = prospectData.get(key);
       if (!existing) {
@@ -221,7 +233,7 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
     ].filter(d => d.value > 0);
 
     return { recipientsDonutData: data, recipientsTotal: prospectData.size };
-  }, [allRecipients]);
+  }, [filteredRecipients]);
 
   // Select active donut data
   const activeDonutData = donutView === 'emails-sent' ? emailsSentDonutData : recipientsDonutData;
@@ -230,9 +242,9 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
 
   // --- Campaign table data (toggle-aware) ---
   const campaignTableData = useMemo(() => {
-    if (allRecipients.length === 0) {
+    if (filteredRecipients.length === 0) {
       // Fallback to stats table
-      return allStats.map(stat => {
+      return filteredStats.map(stat => {
         const campaign = campaigns.find(c => c.id === stat.campaign_id);
         const sent = stat.total_sent || 0;
         return {
@@ -251,7 +263,7 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
 
     // Group recipients by campaign
     const byCampaign = new Map<string, EmailCampaignRecipient[]>();
-    for (const r of allRecipients) {
+    for (const r of filteredRecipients) {
       const list = byCampaign.get(r.campaign_id) || [];
       list.push(r);
       byCampaign.set(r.campaign_id, list);
@@ -284,7 +296,7 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
         bounceRate: getRateValue(bouncedCount, sent),
       };
     });
-  }, [allRecipients, allStats, campaigns, includeReengagements]);
+  }, [filteredRecipients, filteredStats, campaigns, includeReengagements]);
 
   const StatCard = ({ label, value, subtext, icon: Icon, borderColor }: {
     label: string; value: string; subtext: string; icon: React.ElementType; borderColor: string;
@@ -325,8 +337,22 @@ const InteractionActivityTab: React.FC<Props> = ({ onNavigateToCampaign }) => {
 
   return (
     <div className="h-full overflow-auto animate-fade-in">
-      {/* Header with Re-engagements Toggle */}
-      <div className="flex items-center justify-end mb-4">
+      {/* Header with Campaign Selector + Re-engagements Toggle */}
+      <div className="flex items-center justify-between mb-4">
+        {/* Campaign Selector */}
+        <div className="relative">
+          <Filter size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+          <select
+            value={selectedCampaignId}
+            onChange={e => setSelectedCampaignId(e.target.value)}
+            className="pl-8 pr-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-medium outline-none focus:ring-2 focus:ring-black/5 focus:border-black/10 cursor-pointer appearance-none shadow-sm"
+          >
+            <option value="all">All Campaigns</option>
+            {campaigns.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
         <div className="relative">
           <label
             className="flex items-center gap-2.5 cursor-pointer select-none"
