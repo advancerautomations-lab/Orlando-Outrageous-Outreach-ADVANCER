@@ -191,7 +191,7 @@ export interface PendingEmail {
 
 export interface AppNotification {
   id: string;
-  type: 'new_message' | 'pending_email' | 'lead_stage_change';
+  type: 'new_message' | 'pending_email' | 'lead_stage_change' | 'prospect_to_call';
   title: string;
   description: string;
   timestamp: string;

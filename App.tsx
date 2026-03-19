@@ -22,7 +22,7 @@ const CampaignWizardView = lazy(() => import('./components/CampaignWizardView'))
 const ProspectsToCallView = lazy(() => import('./components/ProspectsToCallView'));
 import { leadService, meetingService, messageService, prospectService, prospectToCallService, mapDbToLead, mapDbToMessage } from './services/supabaseService';
 import { Lead, Meeting, LeadStatus, Message, AppNotification, Prospect, ProspectToCall, ProspectToCallStatus } from './types';
-import { Bell, Search, User, Mail, Inbox, TrendingUp, X, Check } from 'lucide-react';
+import { Bell, Search, User, Mail, Inbox, TrendingUp, X, Check, PhoneCall } from 'lucide-react';
 import { GmailAuthButton } from './components/GmailAuthButton';
 
 import { AuthenticationView } from './components/AuthenticationView';
@@ -279,9 +279,9 @@ const App: React.FC = () => {
             return [newPTC, ...prev];
           });
           addNotification({
-            type: 'new_message',
-            title: 'New prospect to call',
-            description: `${newPTC.prospect_name || newPTC.prospect_email}${newPTC.prospect_company ? ` (${newPTC.prospect_company})` : ''} — ${newPTC.total_opens} opens, ${newPTC.total_clicks} clicks`,
+            type: 'prospect_to_call',
+            title: 'New prospect ready to call',
+            description: `${newPTC.prospect_name || newPTC.prospect_email}${newPTC.prospect_company ? ` · ${newPTC.prospect_company}` : ''} — ${newPTC.total_opens} opens, ${newPTC.total_clicks} clicks`,
             navigateTo: 'prospects-to-call',
           });
         }
@@ -591,11 +591,13 @@ const App: React.FC = () => {
                           <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
                             notif.type === 'new_message' ? 'bg-blue-100 text-blue-600'
                             : notif.type === 'pending_email' ? 'bg-amber-100 text-amber-600'
+                            : notif.type === 'prospect_to_call' ? 'bg-[#522B47]/10 text-[#522B47]'
                             : 'bg-emerald-100 text-emerald-600'
                           }`}>
                             {notif.type === 'new_message' && <Mail size={14} />}
                             {notif.type === 'pending_email' && <Inbox size={14} />}
                             {notif.type === 'lead_stage_change' && <TrendingUp size={14} />}
+                            {notif.type === 'prospect_to_call' && <PhoneCall size={14} />}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
