@@ -19,8 +19,9 @@ const SettingsView = lazy(() => import('./components/SettingsView'));
 const DeepResearchView = lazy(() => import('./components/DeepResearchView'));
 const SetupWizard = lazy(() => import('./components/SetupWizard'));
 const CampaignWizardView = lazy(() => import('./components/CampaignWizardView'));
-import { leadService, meetingService, messageService, prospectService, mapDbToLead, mapDbToMessage } from './services/supabaseService';
-import { Lead, Meeting, LeadStatus, Message, AppNotification, Prospect } from './types';
+const ProspectsToCallView = lazy(() => import('./components/ProspectsToCallView'));
+import { leadService, meetingService, messageService, prospectService, prospectToCallService, mapDbToLead, mapDbToMessage } from './services/supabaseService';
+import { Lead, Meeting, LeadStatus, Message, AppNotification, Prospect, ProspectToCall, ProspectToCallStatus } from './types';
 import { Bell, Search, User, Mail, Inbox, TrendingUp, X, Check } from 'lucide-react';
 import { GmailAuthButton } from './components/GmailAuthButton';
 
@@ -38,6 +39,7 @@ const App: React.FC = () => {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [prospects, setProspects] = useState<Prospect[]>([]);
+  const [prospectsToCall, setProspectsToCall] = useState<ProspectToCall[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Notifications
@@ -123,16 +125,18 @@ const App: React.FC = () => {
     setIsLoading(true);
     const fetchData = async () => {
       try {
-        const [leadsData, meetingsData, messagesData, prospectsData] = await Promise.all([
+        const [leadsData, meetingsData, messagesData, prospectsData, prospectsToCallData] = await Promise.all([
           leadService.getLeads(),
           meetingService.getMeetings(),
           messageService.getMessages(),
-          prospectService.getAll()
+          prospectService.getAll(),
+          prospectToCallService.getAll().catch((err) => { console.error('prospectToCallService.getAll failed:', err); return []; }),
         ]);
         setLeads(leadsData);
         setMeetings(meetingsData);
         setMessages(messagesData);
         setProspects(prospectsData);
+        setProspectsToCall(prospectsToCallData);
       } catch (error) {
         console.error("Failed to fetch data", error);
       } finally {
@@ -262,10 +266,44 @@ const App: React.FC = () => {
         if (err) console.error('📡 Pending channel error:', err);
       });
 
+    // Subscribe to Prospects to Call
+    const prospectsToCallChannel = supabase
+      .channel('prospects-to-call-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'prospects_to_call' },
+        (payload) => {
+          const newPTC = payload.new as ProspectToCall;
+          setProspectsToCall(prev => {
+            if (prev.some(p => p.id === newPTC.id)) return prev;
+            return [newPTC, ...prev];
+          });
+          addNotification({
+            type: 'new_message',
+            title: 'New prospect to call',
+            description: `${newPTC.prospect_name || newPTC.prospect_email}${newPTC.prospect_company ? ` (${newPTC.prospect_company})` : ''} — ${newPTC.total_opens} opens, ${newPTC.total_clicks} clicks`,
+            navigateTo: 'prospects-to-call',
+          });
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'prospects_to_call' },
+        (payload) => {
+          const updated = payload.new as ProspectToCall;
+          setProspectsToCall(prev => prev.map(p => p.id === updated.id ? updated : p));
+        }
+      )
+      .subscribe((status, err) => {
+        console.log('📡 Prospects to call channel status:', status);
+        if (err) console.error('📡 Prospects to call channel error:', err);
+      });
+
     return () => {
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(leadsChannel);
       supabase.removeChannel(pendingChannel);
+      supabase.removeChannel(prospectsToCallChannel);
     };
   }, [session]);
 
@@ -365,6 +403,56 @@ const App: React.FC = () => {
         return <DeepResearchView />;
       case 'campaigns':
         return <CampaignWizardView />;
+      case 'prospects-to-call':
+        return (
+          <ProspectsToCallView
+            prospectsToCall={prospectsToCall}
+            onStatusUpdate={async (id, status, notes) => {
+              const updated = await prospectToCallService.updateStatus(id, status, notes);
+              setProspectsToCall(prev => prev.map(p => p.id === id ? updated : p));
+            }}
+            onMarkAsCalled={async (id) => {
+              const updated = await prospectToCallService.markAsCalled(id, currentUser?.id || '');
+              setProspectsToCall(prev => prev.map(p => p.id === id ? updated : p));
+            }}
+            onDismiss={async (id) => {
+              const updated = await prospectToCallService.dismiss(id);
+              setProspectsToCall(prev => prev.map(p => p.id === id ? updated : p));
+            }}
+            onConvertToLead={async (ptc) => {
+              // Look up actual prospect for proper name fields
+              const prospect = await prospectService.getById(ptc.prospect_id);
+              const { data: newLead, error } = await supabase.from('leads').insert({
+                first_name: prospect.first_name || '',
+                last_name: prospect.last_name || '',
+                email: ptc.prospect_email,
+                phone: ptc.prospect_phone || null,
+                company: ptc.prospect_company || prospect.company_name || '',
+                estimated_value: 0,
+                lead_status: 'new',
+                lead_source: 'cold_outreach',
+                prospect_id: ptc.prospect_id,
+                research_report: prospect.research_report || null,
+                pain_points: prospect.pain_points || null,
+                linkedin_url: prospect.linkedin_url || null,
+              }).select().single();
+
+              if (!error && newLead) {
+                // Update prospect's converted_to_lead_id
+                await prospectService.update(ptc.prospect_id, { converted_to_lead_id: newLead.id });
+                // Update prospects_to_call status
+                const updated = await prospectToCallService.updateStatus(ptc.id, 'converted');
+                setProspectsToCall(prev => prev.map(p => p.id === ptc.id ? updated : p));
+                // Refresh leads and prospects
+                const leadsData = await leadService.getLeads();
+                setLeads(leadsData);
+                const prospectsData = await prospectService.getAll();
+                setProspects(prospectsData);
+              }
+            }}
+            onNavigate={setCurrentView}
+          />
+        );
       case 'analytics':
         return <AnalyticsView />;
       case 'team':

@@ -1,4 +1,4 @@
-import { Lead, Meeting, Activity, Message, Prospect, EmailCampaign, EmailToCampaign, EmailCampaignRecipient, EmailCampaignStatistics, PendingEmail, UserProfile } from '../types';
+import { Lead, Meeting, Activity, Message, Prospect, EmailCampaign, EmailToCampaign, EmailCampaignRecipient, EmailCampaignStatistics, PendingEmail, UserProfile, ProspectToCall, ProspectToCallStatus } from '../types';
 import { supabase, supabaseUrl } from '../lib/supabaseClient';
 
 export const leadService = {
@@ -617,6 +617,97 @@ export const pendingEmailService = {
 
     return newMsg ? mapDbToMessage(newMsg) : null;
   }
+};
+
+export const prospectToCallService = {
+  getAll: async (): Promise<ProspectToCall[]> => {
+    const { data, error } = await supabase
+      .from('prospects_to_call')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching prospects to call:', error);
+      throw error;
+    }
+    return data || [];
+  },
+
+  getById: async (id: string): Promise<ProspectToCall> => {
+    const { data, error } = await supabase
+      .from('prospects_to_call')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  updateStatus: async (id: string, status: ProspectToCallStatus, notes?: string): Promise<ProspectToCall> => {
+    const updates: any = { status, updated_at: new Date().toISOString() };
+    if (notes !== undefined) updates.notes = notes;
+
+    const { data, error } = await supabase
+      .from('prospects_to_call')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  markAsCalled: async (id: string, userId: string): Promise<ProspectToCall> => {
+    const { data, error } = await supabase
+      .from('prospects_to_call')
+      .update({
+        status: 'called',
+        called_at: new Date().toISOString(),
+        called_by: userId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  markAsPromising: async (id: string): Promise<ProspectToCall> => {
+    const { data, error } = await supabase
+      .from('prospects_to_call')
+      .update({ status: 'promising', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  dismiss: async (id: string): Promise<ProspectToCall> => {
+    const { data, error } = await supabase
+      .from('prospects_to_call')
+      .update({ status: 'dismissed', updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+
+  delete: async (id: string): Promise<void> => {
+    const { error } = await supabase
+      .from('prospects_to_call')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+  },
 };
 
 export const userService = {

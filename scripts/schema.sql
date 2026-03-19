@@ -239,6 +239,31 @@ CREATE TABLE IF NOT EXISTS public.pending_emails (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+-- 13. PROSPECTS_TO_CALL (warm prospects who engaged with campaigns)
+CREATE TABLE IF NOT EXISTS public.prospects_to_call (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    prospect_id UUID NOT NULL REFERENCES public.prospects(id),
+    campaign_id UUID REFERENCES public.email_campaigns(id),
+    prospect_email TEXT NOT NULL,
+    prospect_name TEXT NOT NULL DEFAULT '',
+    prospect_company TEXT DEFAULT '',
+    prospect_phone TEXT,
+    total_opens INT DEFAULT 0,
+    total_clicks INT DEFAULT 0,
+    emails_opened_count INT DEFAULT 0,
+    emails_clicked_count INT DEFAULT 0,
+    last_opened_at TIMESTAMPTZ,
+    last_clicked_at TIMESTAMPTZ,
+    status TEXT DEFAULT 'new'
+        CHECK (status IN ('new', 'called', 'promising', 'converted', 'dismissed')),
+    notes TEXT,
+    called_at TIMESTAMPTZ,
+    called_by UUID REFERENCES public.users(id),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(prospect_id, campaign_id)
+);
+
 -- ============================================================
 -- INDEXES
 -- ============================================================
@@ -287,6 +312,7 @@ CREATE TRIGGER trg_prospect_to_lead
 ALTER PUBLICATION supabase_realtime ADD TABLE public.leads;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.pending_emails;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.prospects_to_call;
 
 -- ============================================================
 -- ROW LEVEL SECURITY
@@ -306,6 +332,7 @@ ALTER TABLE public.email_to_campaign ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_campaign_recipients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.email_campaign_statistics ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pending_emails ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.prospects_to_call ENABLE ROW LEVEL SECURITY;
 
 -- Authenticated users: full access (single-tenant default)
 CREATE POLICY "auth_full_access" ON public.users FOR ALL TO authenticated USING (true) WITH CHECK (true);
@@ -320,6 +347,7 @@ CREATE POLICY "auth_full_access" ON public.email_to_campaign FOR ALL TO authenti
 CREATE POLICY "auth_full_access" ON public.email_campaign_recipients FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "auth_full_access" ON public.email_campaign_statistics FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "auth_full_access" ON public.pending_emails FOR ALL TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY "auth_full_access" ON public.prospects_to_call FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 -- Service role: full access (needed for edge functions)
 CREATE POLICY "service_full_access" ON public.users FOR ALL TO service_role USING (true) WITH CHECK (true);
@@ -334,3 +362,4 @@ CREATE POLICY "service_full_access" ON public.email_to_campaign FOR ALL TO servi
 CREATE POLICY "service_full_access" ON public.email_campaign_recipients FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "service_full_access" ON public.email_campaign_statistics FOR ALL TO service_role USING (true) WITH CHECK (true);
 CREATE POLICY "service_full_access" ON public.pending_emails FOR ALL TO service_role USING (true) WITH CHECK (true);
+CREATE POLICY "service_full_access" ON public.prospects_to_call FOR ALL TO service_role USING (true) WITH CHECK (true);

@@ -200,6 +200,32 @@ export interface AppNotification {
   leadId?: string;
 }
 
+export type ProspectToCallStatus = 'new' | 'called' | 'promising' | 'converted' | 'dismissed';
+
+export interface ProspectToCall {
+  id: string;
+  prospect_id: string;
+  campaign_id?: string;
+  prospect_email: string;
+  prospect_name: string;
+  prospect_company?: string;
+  prospect_phone?: string;
+  total_opens: number;
+  total_clicks: number;
+  emails_opened_count: number;
+  emails_clicked_count: number;
+  last_opened_at?: string;
+  last_clicked_at?: string;
+  status: ProspectToCallStatus;
+  notes?: string;
+  called_at?: string;
+  called_by?: string;
+  created_at: string;
+  updated_at: string;
+  // Joined field (populated by UI, not stored in DB)
+  campaign_name?: string;
+}
+
 export interface UserProfile {
   id: string;
   email: string;
